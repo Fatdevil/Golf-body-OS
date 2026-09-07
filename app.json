@@ -1,25 +1,43 @@
 {
   "expo": {
-    "name": "golf-body-os",
+    "name": "Golf Body OS",
     "slug": "golf-body-os",
-    "version": "1.0.0",
+    "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.golfbodyos.dev",
+      "deploymentTarget": "16.4",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Golf Body OS uses the camera to analyze your movement during body tests.",
+        "NSMotionUsageDescription": "Golf Body OS uses motion sensors to ensure your phone is level and stable during tests."
+      }
     },
     "android": {
+      "package": "com.golfbodyos.dev",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
+      "permissions": [
+        "CAMERA",
+        "HIGH_SAMPLING_RATE_SENSORS"
+      ],
       "predictiveBackGestureEnabled": false
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    }
+    "plugins": [
+      "expo-asset",
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "Golf Body OS uses the camera to analyze your movement during body tests.",
+          "enableMicrophonePermission": false
+        }
+      ]
+    ]
   }
 }

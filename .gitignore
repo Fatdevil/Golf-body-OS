@@ -39,3 +39,10 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# MediaPipe model binary (~9MB) — download via setup script
+modules/golf-body-pose/android/src/main/assets/pose_landmarker_full.task
+modules/golf-body-pose/ios/pose_landmarker_full.task
+
+# Golden test videos (stored separately)
+golden-videos/*.mp4

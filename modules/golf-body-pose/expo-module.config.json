@@ -1,0 +1,8 @@
+{
+  "ios": {
+    "modules": ["GolfBodyPoseModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.golfbodypose.GolfBodyPoseModule"]
+  }
+}

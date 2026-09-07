@@ -1,0 +1,12 @@
+{
+  "datasetVersion": "0.0.0",
+  "description": "Golden Video Dataset manifest for Golf Body OS R-1A measurement validation. Videos are stored in private external storage, NOT in this repository. This manifest tracks video metadata, expected outputs, and consent records.",
+  "storageLocation": "PRIVATE — configured per environment",
+  "privacyPolicy": {
+    "consent": "All participants must provide written informed consent before recording",
+    "identification": "Participant IDs only — no names or personally identifiable information",
+    "retention": "Videos retained per consent terms; expiry dates tracked per video",
+    "access": "Restricted to authorized development team members only"
+  },
+  "videos": []
+}

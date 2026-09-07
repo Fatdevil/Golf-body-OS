@@ -1,20 +1,12 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+/**
+ * Golf Body OS — App Entry Point
+ *
+ * Currently mounting DV-1A (Native Truth Validation) screen.
+ * This will be replaced with proper navigation once DV-1A passes.
+ */
+import React from 'react';
+import DV1AValidationScreen from './src/validation/DV1AValidationScreen';
 
 export default function App() {
-  return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
-  );
+  return <DV1AValidationScreen />;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
