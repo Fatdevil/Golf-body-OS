@@ -125,9 +125,24 @@ export function extractPhaseKinematics(
   const addrNose = getLandmark(addressFrame, LandmarkId.NOSE);
   const currentNose = getLandmark(frame, LandmarkId.NOSE);
 
-  // 1. Shoulder & Pelvis Turn
-  const shoulderTurn = (ls && rs) ? Math.round(computeTransverseTurn(ls, rs, isRightHanded)) : 0;
-  const pelvisTurn = (lh && rh) ? Math.round(computeTransverseTurn(lh, rh, isRightHanded)) : 0;
+  // 1. Shoulder & Pelvis Turn (Calibrated relative to address baseline)
+  let shoulderTurn = 0;
+  let pelvisTurn = 0;
+
+  if (viewAngle === 'FACE_ON') {
+    shoulderTurn = (ls && rs) ? Math.round(computeTransverseTurn(ls, rs, isRightHanded)) : 0;
+    pelvisTurn = (lh && rh) ? Math.round(computeTransverseTurn(lh, rh, isRightHanded)) : 0;
+  } else {
+    // In DTL: Transverse rotation is relative to address target line alignment
+    const currST = (ls && rs) ? computeTransverseTurn(ls, rs, isRightHanded) : 0;
+    const addrST = (addrLS && addrRS) ? computeTransverseTurn(addrLS, addrRS, isRightHanded) : 0;
+    shoulderTurn = Math.round(currST - addrST);
+
+    const currPT = (lh && rh) ? computeTransverseTurn(lh, rh, isRightHanded) : 0;
+    const addrPT = (addrLH && addrRH) ? computeTransverseTurn(addrLH, addrRH, isRightHanded) : 0;
+    pelvisTurn = Math.round(currPT - addrPT);
+  }
+
   const xFactor = shoulderTurn - pelvisTurn;
 
   // 2. Spine Inclination
