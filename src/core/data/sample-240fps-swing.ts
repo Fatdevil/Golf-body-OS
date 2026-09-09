@@ -336,6 +336,13 @@ function generate240FpsFaceOnSequence(
     let currentKneeY = kneeY;
     let targetSlideX = 0; // Lateral slide towards target (negative X in face-on)
 
+    let leftElbowX = 0.45;
+    let leftElbowY = 0.425;
+    let leftElbowZ = 0.0;
+    let rightElbowX = 0.55;
+    let rightElbowY = 0.425;
+    let rightElbowZ = 0.02;
+
     if (i <= 40) {
       // P1: Address
       shoulderAngleDeg = 0;
@@ -344,6 +351,12 @@ function generate240FpsFaceOnSequence(
       handY = 0.55;
       handZ = 0.0;
       headYawDeg = 0;
+      leftElbowX = 0.45;
+      leftElbowY = 0.425;
+      leftElbowZ = 0.0;
+      rightElbowX = 0.55;
+      rightElbowY = 0.425;
+      rightElbowZ = 0.02;
     } else if (i <= 230) {
       // Backswing (P1 -> P4) - Smooth wide rotational arc
       const prog = (i - 40) / (230 - 40); // 0 to 1
@@ -359,6 +372,17 @@ function generate240FpsFaceOnSequence(
       headYawDeg = ease * 12; // Tiger's 12° subtle head turn to allow full shoulder coil
       currentLeftKneeX = leftKneeX + ease * 0.025; // Lead knee works inward behind ball
       currentRightKneeX = rightKneeX;              // Trail knee braces firmly maintaining flex
+
+      // Lead arm (left): stays taut and straight across chest from left shoulder to hands
+      leftElbowX = 0.45 + ease * 0.16;       // 0.61 at top
+      leftElbowY = 0.425 - ease * 0.155;     // 0.27 at top
+      leftElbowZ = ease * 0.10;
+
+      // Trail arm (right): folds into iconic 90° waiter-tray position!
+      // Right elbow tucks DOWN under hands at (0.63, 0.35) while hands reach (0.71, 0.22)
+      rightElbowX = 0.55 + ease * 0.08;      // 0.63 at top
+      rightElbowY = 0.425 - ease * 0.075;    // 0.35 at top (down under hands!)
+      rightElbowZ = 0.02 + ease * 0.12;
     } else if (i <= 290) {
       // Downswing (P4 -> P7) — rapid 60 frames = 250 ms!
       const prog = (i - 230) / (290 - 230); // 0 to 1
@@ -391,6 +415,17 @@ function generate240FpsFaceOnSequence(
       if (swingType === 'EARLY_EXTENSION' && prog > 0.5) {
         hipY = 0.50 - (prog - 0.5) * 0.08;
       }
+
+      // Lead arm: extended through slot into impact
+      leftElbowX = 0.61 - ease * 0.165;      // reaches 0.445 at impact
+      leftElbowY = 0.27 + ease * 0.155;      // reaches 0.425 at impact
+      leftElbowZ = 0.10 - ease * 0.10;
+
+      // Trail arm: shallowing drop in P5 (pinched to ribs), then power extension into impact
+      const slotDrop = Math.sin(prog * Math.PI) * 0.035;
+      rightElbowX = 0.63 - ease * 0.11 - slotDrop * 0.02;  // reaches 0.52 at impact
+      rightElbowY = 0.35 + ease * 0.075 + slotDrop * 0.03; // drops to ~0.41 in slot, 0.425 at impact
+      rightElbowZ = 0.14 - ease * 0.12;
     } else if (i <= 420) {
       // Follow-Through to Finish (P7 -> P10) - Smooth rotational exit left and high wrap
       const prog = (i - 290) / (420 - 290); // 0 to 1
@@ -410,6 +445,17 @@ function generate240FpsFaceOnSequence(
       targetSlideX = -0.035 - ease * 0.015;
       currentLeftKneeX = 0.42;
       currentRightKneeX = 0.49 - ease * 0.06; // Closes against lead knee
+
+      // Lead arm: full extension through P8, then natural ~95° folding in P9-P10 as hands wrap
+      const p8Extension = Math.sin(Math.min(1, prog / 0.25) * Math.PI);
+      leftElbowX = 0.445 - ease * 0.155 - p8Extension * 0.02; // reaches 0.29 at finish
+      leftElbowY = 0.425 - ease * 0.085 + p8Extension * 0.02; // reaches 0.34 at finish (folded below hands!)
+      leftElbowZ = -ease * 0.10;
+
+      // Trail arm: extends through P8, then folds across chest up to high finish
+      rightElbowX = 0.52 - ease * 0.16;   // reaches 0.36 at finish
+      rightElbowY = 0.425 - ease * 0.155; // reaches 0.27 at finish
+      rightElbowZ = -ease * 0.12;
     } else {
       // Hold finish
       shoulderAngleDeg = -95;
@@ -422,6 +468,14 @@ function generate240FpsFaceOnSequence(
       targetSlideX = -0.05;
       currentLeftKneeX = 0.42;
       currentRightKneeX = 0.43;
+
+      leftElbowX = 0.29;
+      leftElbowY = 0.34;
+      leftElbowZ = -0.10;
+
+      rightElbowX = 0.36;
+      rightElbowY = 0.27;
+      rightElbowZ = -0.12;
     }
 
     // Convert angles to shoulder & hip positions
@@ -483,8 +537,8 @@ function generate240FpsFaceOnSequence(
       lm(LandmarkId.RIGHT_EAR, rightEarX, headCurrentY, rightEarZ),
       lm(LandmarkId.LEFT_SHOULDER, lsX, shoulderY, lsZ),
       lm(LandmarkId.RIGHT_SHOULDER, rsX, shoulderY, rsZ),
-      lm(LandmarkId.LEFT_ELBOW, (lsX + handX) / 2 + leadElbowOffsetX, (shoulderY + handY) / 2, lsZ / 2),
-      lm(LandmarkId.RIGHT_ELBOW, (rsX + handX) / 2 + 0.02, (shoulderY + handY) / 2, rsZ / 2),
+      lm(LandmarkId.LEFT_ELBOW, leftElbowX + leadElbowOffsetX, leftElbowY, leftElbowZ),
+      lm(LandmarkId.RIGHT_ELBOW, rightElbowX, rightElbowY, rightElbowZ),
       lm(LandmarkId.LEFT_WRIST, handX - 0.02, handY, handZ),
       lm(LandmarkId.RIGHT_WRIST, handX + 0.02, handY, handZ),
       lm(LandmarkId.LEFT_HIP, lhX, hipY, lhZ),
@@ -691,10 +745,10 @@ function generate240FpsDtlSequence(
       handY = 0.54 - ease * 0.36;
       handZ = -0.02 - ease * 0.15;
 
-      leftElbowX = 0.42 - Math.sin(prog * Math.PI) * 0.06 + ease * 0.06;
-      leftElbowY = 0.42 - ease * 0.16;
-      rightElbowX = 0.45 - Math.sin(prog * Math.PI) * 0.05 + ease * 0.08;
-      rightElbowY = 0.43 - ease * 0.15;
+      leftElbowX = 0.42 - Math.sin(prog * Math.PI) * 0.08 - ease * 0.04;
+      leftElbowY = 0.42 - ease * 0.10;
+      rightElbowX = 0.45 - Math.sin(prog * Math.PI) * 0.07 - ease * 0.05;
+      rightElbowY = 0.43 - ease * 0.17;
     } else {
       // Hold elegant tour finish
       shoulderTurnDeg = -95;
@@ -702,10 +756,10 @@ function generate240FpsDtlSequence(
       handX = 0.46;
       handY = 0.18;
       handZ = -0.17;
-      leftElbowX = 0.42;
-      leftElbowY = 0.26;
-      rightElbowX = 0.48;
-      rightElbowY = 0.28;
+      leftElbowX = 0.38;
+      leftElbowY = 0.32;
+      rightElbowX = 0.40;
+      rightElbowY = 0.26;
       hipX = 0.48;
       hipY = 0.47;
       shoulderX = 0.475;
