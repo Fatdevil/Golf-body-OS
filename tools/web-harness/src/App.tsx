@@ -20,6 +20,7 @@ import { LiveRotationCoachingEngine } from '../../../src/core/coaching/live-rota
 import { summarizeThoracicRotation, ThoracicRotationResult } from '../../../src/core/metrics/thoracic-rotation-metrics';
 import { THORACIC_ROTATION_V1 } from '../../../src/protocols/thoracic-rotation-v1';
 import HolisticReportCard from './components/HolisticReportCard';
+import SwingAnalysisView from './components/SwingAnalysisView';
 import { calculateGolfBodyScore, GolfBodyScoreResult } from '../../../src/core/metrics/golf-body-score';
 
 // Dummy Test Protocol for Harness
@@ -138,6 +139,7 @@ export default function App() {
   const aiCoachServiceRef = useRef<AiCoachService>(new AiCoachService());
   const stopWebcamRef = useRef<() => void>(() => {});
 
+  const [mainTab, setMainTab] = useState<'BODY_SCREENING' | 'SWING_ANALYSIS'>('SWING_ANALYSIS');
   const [activeProtocol, setActiveProtocol] = useState<'HIP_HINGE_V1' | 'THORACIC_ROTATION_V1'>('HIP_HINGE_V1');
   const activeProtocolRef = useRef<'HIP_HINGE_V1' | 'THORACIC_ROTATION_V1'>('HIP_HINGE_V1');
   const [rotationResult, setRotationResult] = useState<ThoracicRotationResult | null>(null);
@@ -1144,54 +1146,85 @@ export default function App() {
                 </h1>
               </div>
 
-              {/* Protocol Switcher */}
-              <div className="flex flex-wrap bg-gray-900 p-1 rounded-xl border border-gray-800 shadow-md">
+              {/* Main Mode Switcher: 240 fps Swing Engine vs Body Screening */}
+              <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800 shadow-md">
                 <button
-                  onClick={() => {
-                    unlockAudio();
-                    handleStartScreeningFlow();
-                  }}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                    isScreeningFlow
-                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg border border-emerald-400/50'
+                  onClick={() => setMainTab('SWING_ANALYSIS')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                    mainTab === 'SWING_ANALYSIS'
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg border border-emerald-400/40'
                       : 'text-gray-400 hover:text-white'
                   }`}
                 >
-                  <span>🏆</span>
-                  <span>{language === 'sv-SE' ? 'Hel screening' : 'Full Screening'}</span>
+                  <span>⚡</span>
+                  <span>{language === 'sv-SE' ? '240 fps Svingmotor' : '240 fps Swing Engine'}</span>
+                  <span className="bg-emerald-400/20 text-emerald-300 text-[9px] px-1.5 py-0.5 rounded-full font-mono font-bold">P1–P10</span>
                 </button>
                 <button
-                  onClick={() => {
-                    unlockAudio();
-                    handleSwitchProtocol('HIP_HINGE_V1');
-                  }}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                    !isScreeningFlow && activeProtocol === 'HIP_HINGE_V1'
+                  onClick={() => setMainTab('BODY_SCREENING')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                    mainTab === 'BODY_SCREENING'
                       ? 'bg-blue-600 text-white shadow'
                       : 'text-gray-400 hover:text-white'
                   }`}
                 >
                   <span>🏋️</span>
-                  <span>{language === 'sv-SE' ? '1. Höftfällning' : '1. Hip Hinge'}</span>
-                </button>
-                <button
-                  onClick={() => {
-                    unlockAudio();
-                    handleSwitchProtocol('THORACIC_ROTATION_V1');
-                  }}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                    !isScreeningFlow && activeProtocol === 'THORACIC_ROTATION_V1'
-                      ? 'bg-purple-600 text-white shadow'
-                      : 'text-gray-400 hover:text-white'
-                  }`}
-                >
-                  <span>🏌️</span>
-                  <span>{language === 'sv-SE' ? '2. Bröstrygg' : '2. Thoracic'}</span>
+                  <span>{language === 'sv-SE' ? 'Kroppsscreening' : 'Body Screening'}</span>
                 </button>
               </div>
+
+              {/* Protocol Switcher (When in Body Screening mode) */}
+              {mainTab === 'BODY_SCREENING' && (
+                <div className="flex flex-wrap bg-gray-900 p-1 rounded-xl border border-gray-800 shadow-md">
+                  <button
+                    onClick={() => {
+                      unlockAudio();
+                      handleStartScreeningFlow();
+                    }}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                      isScreeningFlow
+                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg border border-emerald-400/50'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    <span>🏆</span>
+                    <span>{language === 'sv-SE' ? 'Hel screening' : 'Full Screening'}</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      unlockAudio();
+                      handleSwitchProtocol('HIP_HINGE_V1');
+                    }}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                      !isScreeningFlow && activeProtocol === 'HIP_HINGE_V1'
+                        ? 'bg-blue-600 text-white shadow'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    <span>🏋️</span>
+                    <span>{language === 'sv-SE' ? '1. Höftfällning' : '1. Hip Hinge'}</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      unlockAudio();
+                      handleSwitchProtocol('THORACIC_ROTATION_V1');
+                    }}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                      !isScreeningFlow && activeProtocol === 'THORACIC_ROTATION_V1'
+                        ? 'bg-purple-600 text-white shadow'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    <span>🏌️</span>
+                    <span>{language === 'sv-SE' ? '2. Bröstrygg' : '2. Thoracic'}</span>
+                  </button>
+                </div>
+              )}
             </div>
             <p className="text-gray-400 font-mono text-xs mt-1">
-              {isScreeningFlow
+              {mainTab === 'SWING_ANALYSIS'
+                ? (language === 'sv-SE' ? '240 fps svinganalys (Face-On / DTL) – P1–P10 fasdetektering, X-Factor, svingfel och biomekaniska kroppskopplingar' : '240 fps high-speed swing analysis (Face-On / DTL) – P1–P10 phase detection, X-Factor, swing faults & root-cause body correlations')
+                : isScreeningFlow
                 ? (language === 'sv-SE' ? 'Sammanhängande: Test 1 Höftfällning (Sida) → Övergång → Test 2 Bröstryggsrotation (Fram) → Score' : 'Continuous: Test 1 Hip Hinge (Side) → Transition → Test 2 Thoracic (Front) → Score')
                 : activeProtocol === 'HIP_HINGE_V1'
                 ? (language === 'sv-SE' ? 'Sidovy (vänster) – Mäter höftvinkel, knävinkel och hållning' : 'Side view (left) – Measures hip hinge, knee flex & posture')
@@ -1292,102 +1325,104 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          {mode === 'WEBCAM' ? (
-            <button
-              onClick={stopWebcam}
-              className="flex items-center gap-2 bg-red-600 hover:bg-red-700 active:scale-95 px-4 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-red-600/30 transition"
-            >
-              <span>⏹</span> {language === 'sv-SE' ? 'Avsluta & Analysera' : 'Stop Capture & Analyze'}
-            </button>
-          ) : (
-            <button
-              onClick={() => { unlockAudio(); startWebcam(); }}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:scale-95 px-4 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-blue-600/30 transition"
-            >
-              <Camera size={18} /> {language === 'sv-SE' ? 'Starta Kamera' : 'Live Camera'}
-            </button>
-          )}
+        {mainTab === 'BODY_SCREENING' && (
+          <div className="flex flex-wrap items-center gap-3">
+            {mode === 'WEBCAM' ? (
+              <button
+                onClick={stopWebcam}
+                className="flex items-center gap-2 bg-red-600 hover:bg-red-700 active:scale-95 px-4 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-red-600/30 transition"
+              >
+                <span>⏹</span> {language === 'sv-SE' ? 'Avsluta & Analysera' : 'Stop Capture & Analyze'}
+              </button>
+            ) : (
+              <button
+                onClick={() => { unlockAudio(); startWebcam(); }}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:scale-95 px-4 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-blue-600/30 transition"
+              >
+                <Camera size={18} /> {language === 'sv-SE' ? 'Starta Kamera' : 'Live Camera'}
+              </button>
+            )}
 
-          {mode === 'WEBCAM' && (
+            {mode === 'WEBCAM' && (
+              <button
+                onClick={toggleCameraFacing}
+                disabled={isSwitchingCamera}
+                type="button"
+                className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-200 px-3.5 py-2.5 rounded-xl font-medium text-xs border border-gray-700 transition"
+                title={language === 'sv-SE' ? 'Växla mellan fram/bakkamera' : 'Switch between front/rear camera'}
+              >
+                <SwitchCamera size={16} className={isSwitchingCamera ? 'animate-spin' : ''} />
+                <span>{cameraFacing === 'user' ? (language === 'sv-SE' ? 'Selfie' : 'Front') : (language === 'sv-SE' ? 'Bakre' : 'Rear')}</span>
+              </button>
+            )}
+
+            {mode === 'WEBCAM' && (
+              <button
+                onClick={toggleFullscreen}
+                type="button"
+                className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-200 px-3.5 py-2.5 rounded-xl font-medium text-xs border border-gray-700 transition"
+                title={isMobileFullscreen ? (language === 'sv-SE' ? 'Lämna helskärm' : 'Exit Fullscreen') : (language === 'sv-SE' ? 'Helskärm' : 'Fullscreen')}
+              >
+                {isMobileFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                <span>{isMobileFullscreen ? (language === 'sv-SE' ? 'Mindre vy' : 'Exit') : (language === 'sv-SE' ? 'Helskärm' : 'Fullscreen')}</span>
+              </button>
+            )}
+
+            <div className="relative">
+              <input type="file" accept="video/*" onChange={handleFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" ref={fileInputRef} />
+              <button className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-300 px-3.5 py-2.5 rounded-xl font-medium text-xs border border-gray-700 transition">
+                <Upload size={16} /> {language === 'sv-SE' ? 'Ladda upp Video' : 'Upload Video'}
+              </button>
+            </div>
+
+            {/* Wi-Fi Guide & QR Code Button */}
             <button
-              onClick={toggleCameraFacing}
-              disabled={isSwitchingCamera}
+              onClick={() => setShowQrModal(true)}
               type="button"
-              className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-200 px-3.5 py-2.5 rounded-xl font-medium text-xs border border-gray-700 transition"
-              title={language === 'sv-SE' ? 'Växla mellan fram/bakkamera' : 'Switch between front/rear camera'}
+              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-500/40 text-[11px] text-emerald-300 font-mono transition active:scale-95 cursor-pointer shadow-sm"
+              title="Klicka för att visa QR-kod att scanna med mobilen"
             >
-              <SwitchCamera size={16} className={isSwitchingCamera ? 'animate-spin' : ''} />
-              <span>{cameraFacing === 'user' ? (language === 'sv-SE' ? 'Selfie' : 'Front') : (language === 'sv-SE' ? 'Bakre' : 'Rear')}</span>
+              <QrCode size={14} className="text-emerald-400" />
+              <span>Mobil:</span>
+              <span className="font-bold underline">Scanna QR</span>
             </button>
-          )}
 
-          {mode === 'WEBCAM' && (
-            <button
-              onClick={toggleFullscreen}
-              type="button"
-              className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-200 px-3.5 py-2.5 rounded-xl font-medium text-xs border border-gray-700 transition"
-              title={isMobileFullscreen ? (language === 'sv-SE' ? 'Lämna helskärm' : 'Exit Fullscreen') : (language === 'sv-SE' ? 'Helskärm' : 'Fullscreen')}
-            >
-              {isMobileFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-              <span>{isMobileFullscreen ? (language === 'sv-SE' ? 'Mindre vy' : 'Exit') : (language === 'sv-SE' ? 'Helskärm' : 'Fullscreen')}</span>
-            </button>
-          )}
-
-          <div className="relative">
-            <input type="file" accept="video/*" onChange={handleFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" ref={fileInputRef} />
-            <button className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-300 px-3.5 py-2.5 rounded-xl font-medium text-xs border border-gray-700 transition">
-              <Upload size={16} /> {language === 'sv-SE' ? 'Ladda upp Video' : 'Upload Video'}
-            </button>
+            {/* Mobile-Friendly Segmented View Switcher (Visible on screens < lg) */}
+            <div className="lg:hidden flex ml-auto bg-gray-900 rounded-xl p-1 border border-gray-800 shadow-inner">
+              <button
+                onClick={() => setMobileTab('TEST')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                  mobileTab === 'TEST' ? 'bg-blue-600 text-white shadow' : 'text-gray-400'
+                }`}
+              >
+                📹 {language === 'sv-SE' ? 'Kamera' : 'Camera'}
+              </button>
+              <button
+                onClick={() => setMobileTab('REPORT')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                  mobileTab === 'REPORT' ? 'bg-purple-600 text-white shadow' : 'text-gray-400'
+                }`}
+              >
+                <span>📊 {language === 'sv-SE' ? 'Rapport' : 'Report'}</span>
+                {(golfBodyScoreResult || report) && <span className="w-2 h-2 rounded-full bg-emerald-400"></span>}
+              </button>
+            </div>
+            
+            <div className="hidden lg:flex gap-2 ml-auto">
+              <button onClick={runDeterminism1C} disabled={mode !== 'VIDEO' || running1C || running1D} className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 px-3 py-1.5 rounded-lg text-xs font-semibold">
+                <RefreshCw size={14} className={running1C ? 'animate-spin' : ''} /> 
+                {running1C ? 'Running...' : 'WEB-DV-1C'}
+              </button>
+              <button onClick={runDeterminism1D} disabled={mode !== 'VIDEO' || running1C || running1D} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-3 py-1.5 rounded-lg text-xs font-semibold">
+                <RefreshCw size={14} className={running1D ? 'animate-spin' : ''} /> 
+                {running1D ? 'Running...' : 'WEB-DV-1D'}
+              </button>
+              <button onClick={() => setAnnotationMode(true)} disabled={mode !== 'VIDEO' || running1C || running1D || lastReps.length !== 3} className="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 px-3 py-1.5 rounded-lg text-xs font-semibold">
+                GT-1
+              </button>
+            </div>
           </div>
-
-          {/* Wi-Fi Guide & QR Code Button */}
-          <button
-            onClick={() => setShowQrModal(true)}
-            type="button"
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-500/40 text-[11px] text-emerald-300 font-mono transition active:scale-95 cursor-pointer shadow-sm"
-            title="Klicka för att visa QR-kod att scanna med mobilen"
-          >
-            <QrCode size={14} className="text-emerald-400" />
-            <span>Mobil:</span>
-            <span className="font-bold underline">Scanna QR</span>
-          </button>
-
-          {/* Mobile-Friendly Segmented View Switcher (Visible on screens < lg) */}
-          <div className="lg:hidden flex ml-auto bg-gray-900 rounded-xl p-1 border border-gray-800 shadow-inner">
-            <button
-              onClick={() => setMobileTab('TEST')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                mobileTab === 'TEST' ? 'bg-blue-600 text-white shadow' : 'text-gray-400'
-              }`}
-            >
-              📹 {language === 'sv-SE' ? 'Kamera' : 'Camera'}
-            </button>
-            <button
-              onClick={() => setMobileTab('REPORT')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
-                mobileTab === 'REPORT' ? 'bg-purple-600 text-white shadow' : 'text-gray-400'
-              }`}
-            >
-              <span>📊 {language === 'sv-SE' ? 'Rapport' : 'Report'}</span>
-              {(golfBodyScoreResult || report) && <span className="w-2 h-2 rounded-full bg-emerald-400"></span>}
-            </button>
-          </div>
-          
-          <div className="hidden lg:flex gap-2 ml-auto">
-            <button onClick={runDeterminism1C} disabled={mode !== 'VIDEO' || running1C || running1D} className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 px-3 py-1.5 rounded-lg text-xs font-semibold">
-              <RefreshCw size={14} className={running1C ? 'animate-spin' : ''} /> 
-              {running1C ? 'Running...' : 'WEB-DV-1C'}
-            </button>
-            <button onClick={runDeterminism1D} disabled={mode !== 'VIDEO' || running1C || running1D} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-3 py-1.5 rounded-lg text-xs font-semibold">
-              <RefreshCw size={14} className={running1D ? 'animate-spin' : ''} /> 
-              {running1D ? 'Running...' : 'WEB-DV-1D'}
-            </button>
-            <button onClick={() => setAnnotationMode(true)} disabled={mode !== 'VIDEO' || running1C || running1D || lastReps.length !== 3} className="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 px-3 py-1.5 rounded-lg text-xs font-semibold">
-              GT-1
-            </button>
-          </div>
-        </div>
+        )}
 
         {annotationMode ? (
           <AnnotatorView 
@@ -1397,6 +1432,15 @@ export default function App() {
               cache: frameCacheRef.current.get(r.endpointFrameId) 
             }))} 
             onClose={() => setAnnotationMode(false)} 
+          />
+        ) : mainTab === 'SWING_ANALYSIS' ? (
+          <SwingAnalysisView
+            currentBodyScore={golfBodyScoreResult}
+            language={language}
+            onNavigateToScreening={() => {
+              setMainTab('BODY_SCREENING');
+              handleStartScreeningFlow();
+            }}
           />
         ) : (
           <div>
@@ -1900,6 +1944,9 @@ export default function App() {
               onRestartScreening={() => {
                 setMobileTab('TEST');
                 handleStartScreeningFlow();
+              }}
+              onAnalyzeSwing={() => {
+                setMainTab('SWING_ANALYSIS');
               }}
             />
           </div>

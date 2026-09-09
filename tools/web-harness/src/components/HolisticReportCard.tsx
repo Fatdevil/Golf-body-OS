@@ -32,6 +32,7 @@ interface HolisticReportCardProps {
   language: SupportedLanguage;
   aiCoachService: AiCoachService;
   onRestartScreening?: () => void;
+  onAnalyzeSwing?: () => void;
 }
 
 export default function HolisticReportCard({
@@ -41,7 +42,8 @@ export default function HolisticReportCard({
   spokenCues,
   language,
   aiCoachService,
-  onRestartScreening
+  onRestartScreening,
+  onAnalyzeSwing
 }: HolisticReportCardProps) {
   const isSv = language === 'sv-SE';
   const [analysis, setAnalysis] = useState<AiCoachAnalysis | null>(null);
@@ -195,10 +197,20 @@ ${analysis?.proTip || ''}
             <Printer className="w-4 h-4" />
             {isSv ? 'Skriv ut / PDF' : 'Print / PDF'}
           </button>
+          {onAnalyzeSwing && (
+            <button
+              onClick={onAnalyzeSwing}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white transition-all shadow-md shadow-emerald-500/20 border border-emerald-400/40"
+              title="Analysera sving (240 fps) med din kroppsprofil"
+            >
+              <span>⚡</span>
+              <span>{isSv ? 'Svinganalys (240 fps)' : 'Swing Engine (240 fps)'}</span>
+            </button>
+          )}
           {onRestartScreening && (
             <button
               onClick={onRestartScreening}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 transition-colors border border-emerald-500/40 ml-2"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 transition-colors border border-emerald-500/40 ml-1"
             >
               <RefreshCw className="w-4 h-4" />
               {isSv ? 'Starta om screening' : 'Retest Screening'}
