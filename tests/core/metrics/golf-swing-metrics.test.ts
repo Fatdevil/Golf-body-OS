@@ -56,4 +56,12 @@ describe('GolfSwingMetrics', () => {
     expect(ee?.phaseDetected).toBe('P7_IMPACT');
     expect(ee?.severity).toBe('HIGH');
   });
+
+  it('should compute DTL spine inclination correctly for profile posture', () => {
+    const dtlFrames = generate240FpsSwingSequence(50, 'OPTIMAL', 'DOWN_THE_LINE');
+    const inc = computeSpineInclination(dtlFrames[0], 'DOWN_THE_LINE');
+    // Athletic forward tilt is typically ~30-36° from vertical
+    expect(inc).toBeGreaterThan(25);
+    expect(inc).toBeLessThan(40);
+  });
 });

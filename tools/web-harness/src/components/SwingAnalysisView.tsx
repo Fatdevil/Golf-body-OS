@@ -134,11 +134,21 @@ export default function SwingAnalysisView({
     setAnalysis(rawAnalysis);
   }, [frames, viewAngle, isRightHanded, activeBodyScore]);
 
+  // Switch camera view angle and immediately load matching reference sequence
+  const handleViewAngleChange = (newAngle: CameraViewAngle) => {
+    if (newAngle === viewAngle) return;
+    setIsPlaying(false);
+    setViewAngle(newAngle);
+    const seq = generate240FpsSwingSequence(480, sampleType, newAngle);
+    setFrames(seq);
+    setCurrentFrameIndex(0);
+  };
+
   // Load sample swing preset
   const handleLoadSample = (type: SampleSwingType) => {
     setIsPlaying(false);
     setSampleType(type);
-    const seq = generate240FpsSwingSequence(480, type);
+    const seq = generate240FpsSwingSequence(480, type, viewAngle);
     setFrames(seq);
     setCurrentFrameIndex(0);
   };
@@ -303,24 +313,88 @@ export default function SwingAnalysisView({
       ctx.stroke();
     }
 
-    // 3. Draw Address Reference Box (Head Box for Sway detection)
-    if (frames[0]) {
-      const addrNose = getLandmark(frames[0], LandmarkId.NOSE);
-      if (addrNose) {
-        const hx = addrNose.x * width;
-        const hy = addrNose.y * height;
-        const boxSize = 34;
+    // 3. Draw Address Reference Lines
+    if (viewAngle === 'FACE_ON') {
+      // Face-On: Draw Head Box for Sway detection
+      if (frames[0]) {
+        const addrNose = getLandmark(frames[0], LandmarkId.NOSE);
+        if (addrNose) {
+          const hx = addrNose.x * width;
+          const hy = addrNose.y * height;
+          const boxSize = 34;
 
-        ctx.strokeStyle = 'rgba(148, 163, 184, 0.4)';
-        ctx.lineWidth = 1.5;
+          ctx.strokeStyle = 'rgba(148, 163, 184, 0.4)';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 4]);
+          ctx.strokeRect(hx - boxSize / 2, hy - boxSize / 2, boxSize, boxSize);
+          ctx.setLineDash([]);
+
+          // Label
+          ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
+          ctx.font = '9px monospace';
+          ctx.fillText('HEAD BOX', hx - 22, hy - boxSize / 2 - 4);
+        }
+      }
+    } else {
+      // Down-The-Line (DTL): Draw Iconic PGA Tush Line & Shaft Plane
+      if (frames[0]) {
+        const addrLH = getLandmark(frames[0], LandmarkId.LEFT_HIP);
+        const addrRH = getLandmark(frames[0], LandmarkId.RIGHT_HIP);
+        const currLH = getLandmark(currentFrame, LandmarkId.LEFT_HIP);
+        const currRH = getLandmark(currentFrame, LandmarkId.RIGHT_HIP);
+
+        // 1. TUSH LINE: Vertical reference line at posterior glute boundary
+        const addrHipX = Math.max(addrLH?.x ?? 0.60, addrRH?.x ?? 0.60) + 0.015;
+        const tushX = addrHipX * width;
+        const currHipX = Math.max(currLH?.x ?? 0.60, currRH?.x ?? 0.60) + 0.015;
+        const currHipPx = currHipX * width;
+
+        // Detect Early Extension (hip moves forward towards ball away from Tush Line during downswing/impact)
+        const isImpactPhase = activeIntFrame >= 240 && activeIntFrame <= 310;
+        const hipLossPx = tushX - currHipPx;
+        const isEarlyExt = isImpactPhase && hipLossPx > 14;
+
+        ctx.strokeStyle = isEarlyExt ? '#ef4444' : '#06b6d4';
+        ctx.lineWidth = isEarlyExt ? 2.5 : 1.8;
         ctx.setLineDash([4, 4]);
-        ctx.strokeRect(hx - boxSize / 2, hy - boxSize / 2, boxSize, boxSize);
+        ctx.beginPath();
+        ctx.moveTo(tushX, height * 0.35);
+        ctx.lineTo(tushX, height * 0.92);
+        ctx.stroke();
         ctx.setLineDash([]);
 
-        // Label
-        ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
+        // Tush Line Pill Badge
+        ctx.fillStyle = isEarlyExt ? 'rgba(239, 68, 68, 0.95)' : 'rgba(15, 23, 42, 0.85)';
+        ctx.strokeStyle = isEarlyExt ? '#ef4444' : '#06b6d4';
+        ctx.lineWidth = 1;
+        ctx.roundRect(tushX - 38, height * 0.35 - 18, 76, 17, 5);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = isEarlyExt ? '#ffffff' : '#06b6d4';
+        ctx.font = 'bold 8.5px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(isEarlyExt ? '⚠️ TUSH LOST' : 'TUSH LINE', tushX, height * 0.35 - 6);
+        ctx.textAlign = 'start';
+
+        // 2. SHAFT PLANE LINE: From address ball (0.34, 0.905) through address hands / belt
+        const ballX = 0.34 * width;
+        const ballY = 0.905 * height;
+        const topPlaneX = 0.58 * width;
+        const topPlaneY = 0.16 * height;
+
+        ctx.strokeStyle = 'rgba(234, 179, 8, 0.4)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(ballX, ballY);
+        ctx.lineTo(topPlaneX, topPlaneY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = 'rgba(234, 179, 8, 0.7)';
         ctx.font = '9px monospace';
-        ctx.fillText('HEAD BOX', hx - 22, hy - boxSize / 2 - 4);
+        ctx.fillText('SHAFT PLANE', topPlaneX - 25, topPlaneY - 4);
       }
     }
 
@@ -401,8 +475,14 @@ export default function SwingAnalysisView({
         ctx.strokeStyle = '#f59e0b';
         ctx.lineWidth = 2.5;
         ctx.beginPath();
-        ctx.moveTo(hx - 10, hy - 4);
-        ctx.lineTo(hx + 10, hy - 4);
+        if (viewAngle === 'FACE_ON') {
+          ctx.moveTo(hx - 10, hy - 4);
+          ctx.lineTo(hx + 10, hy - 4);
+        } else {
+          // Profile visor pointing left towards target
+          ctx.moveTo(hx - 4, hy - 4);
+          ctx.lineTo(hx - 16, hy - 2);
+        }
         ctx.stroke();
       }
 
@@ -416,68 +496,116 @@ export default function SwingAnalysisView({
         let clubheadX = 0.50 * width;
         let clubheadY = 0.90 * height;
 
-        if (activeIntFrame <= 40) {
-          // P1 Address: Clubhead grounded right behind ball
-          clubheadX = 0.50 * width;
-          clubheadY = 0.90 * height;
-        } else if (activeIntFrame <= 230) {
-          // Backswing: shaft points from hands in backswing direction
-          const prog = (activeIntFrame - 40) / 190;
-          clubheadX = (handGripX / width + 0.19 * Math.cos((prog * 180 - 40) * Math.PI / 180)) * width;
-          clubheadY = (handGripY / height - 0.22 * Math.sin((prog * 180 - 40) * Math.PI / 180)) * height;
-        } else if (activeIntFrame <= 290) {
-          // Downswing: accelerating to ball
-          const prog = (activeIntFrame - 230) / 60;
-          clubheadX = ((handGripX / width + 0.16 * (1 - prog)) * (1 - prog) + 0.49 * prog) * width;
-          clubheadY = ((handGripY / height - 0.16 * (1 - prog)) * (1 - prog) + 0.90 * prog) * height;
-        } else if (activeIntFrame <= 420) {
-          // Follow-through: swinging around to finish
-          const prog = (activeIntFrame - 290) / 130;
-          clubheadX = (handGripX / width - 0.22 * Math.sin(prog * Math.PI)) * width;
-          clubheadY = (handGripY / height - 0.20 * Math.cos(prog * Math.PI * 0.7)) * height;
+        if (viewAngle === 'FACE_ON') {
+          if (activeIntFrame <= 40) {
+            clubheadX = 0.50 * width;
+            clubheadY = 0.90 * height;
+          } else if (activeIntFrame <= 230) {
+            const prog = (activeIntFrame - 40) / 190;
+            clubheadX = (handGripX / width + 0.19 * Math.cos((prog * 180 - 40) * Math.PI / 180)) * width;
+            clubheadY = (handGripY / height - 0.22 * Math.sin((prog * 180 - 40) * Math.PI / 180)) * height;
+          } else if (activeIntFrame <= 290) {
+            const prog = (activeIntFrame - 230) / 60;
+            clubheadX = ((handGripX / width + 0.16 * (1 - prog)) * (1 - prog) + 0.49 * prog) * width;
+            clubheadY = ((handGripY / height - 0.16 * (1 - prog)) * (1 - prog) + 0.90 * prog) * height;
+          } else if (activeIntFrame <= 420) {
+            const prog = (activeIntFrame - 290) / 130;
+            clubheadX = (handGripX / width - 0.22 * Math.sin(prog * Math.PI)) * width;
+            clubheadY = (handGripY / height - 0.20 * Math.cos(prog * Math.PI * 0.7)) * height;
+          } else {
+            clubheadX = (handGripX / width + 0.18) * width;
+            clubheadY = (handGripY / height + 0.08) * height;
+          }
+
+          // Ball on turf
+          if (activeIntFrame <= 292) {
+            const ballX = 0.50 * width;
+            const ballY = 0.905 * height;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+            ctx.beginPath();
+            ctx.ellipse(ballX, ballY + 4, 5, 2, 0, 0, 2 * Math.PI);
+            ctx.fill();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(ballX, ballY, 4.5, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.strokeStyle = '#cbd5e1';
+            ctx.lineWidth = 0.8;
+            ctx.stroke();
+          }
+
+          // Club Shaft & Head
+          ctx.strokeStyle = '#e2e8f0';
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(handGripX, handGripY);
+          ctx.lineTo(clubheadX, clubheadY);
+          ctx.stroke();
+
+          ctx.fillStyle = '#94a3b8';
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.ellipse(clubheadX, clubheadY, 7, 4, activeIntFrame > 230 && activeIntFrame < 350 ? -0.4 : 0.3, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.stroke();
         } else {
-          // Hold finish
-          clubheadX = (handGripX / width + 0.18) * width;
-          clubheadY = (handGripY / height + 0.08) * height;
-        }
+          // DOWN-THE-LINE Club & Ball
+          if (activeIntFrame <= 40) {
+            clubheadX = 0.34 * width;
+            clubheadY = 0.90 * height;
+          } else if (activeIntFrame <= 230) {
+            const prog = (activeIntFrame - 40) / 190;
+            clubheadX = (handGripX / width + 0.04 + 0.16 * prog) * width;
+            clubheadY = (handGripY / height - 0.22 * Math.sin(prog * Math.PI * 0.8)) * height;
+          } else if (activeIntFrame <= 290) {
+            const prog = (activeIntFrame - 230) / 60;
+            clubheadX = ((handGripX / width + 0.18 * (1 - prog)) * (1 - prog) + 0.34 * prog) * width;
+            clubheadY = ((handGripY / height - 0.20 * (1 - prog)) * (1 - prog) + 0.90 * prog) * height;
+          } else if (activeIntFrame <= 420) {
+            const prog = (activeIntFrame - 290) / 130;
+            clubheadX = (handGripX / width - 0.18 * Math.sin(prog * Math.PI)) * width;
+            clubheadY = (handGripY / height - 0.20 * Math.cos(prog * Math.PI * 0.7)) * height;
+          } else {
+            clubheadX = (handGripX / width + 0.14) * width;
+            clubheadY = (handGripY / height + 0.08) * height;
+          }
 
-        // Draw Golf Ball on tee/turf (visible during address, backswing, and impact)
-        if (activeIntFrame <= 292) {
-          const ballX = 0.50 * width;
-          const ballY = 0.905 * height;
+          // Ball in DTL
+          if (activeIntFrame <= 292) {
+            const ballX = 0.34 * width;
+            const ballY = 0.905 * height;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+            ctx.beginPath();
+            ctx.ellipse(ballX, ballY + 4, 5, 2, 0, 0, 2 * Math.PI);
+            ctx.fill();
 
-          // Ball shadow
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(ballX, ballY, 4.5, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.strokeStyle = '#cbd5e1';
+            ctx.lineWidth = 0.8;
+            ctx.stroke();
+          }
+
+          // Club Shaft & Head
+          ctx.strokeStyle = '#e2e8f0';
+          ctx.lineWidth = 2.5;
           ctx.beginPath();
-          ctx.ellipse(ballX, ballY + 4, 5, 2, 0, 0, 2 * Math.PI);
-          ctx.fill();
+          ctx.moveTo(handGripX, handGripY);
+          ctx.lineTo(clubheadX, clubheadY);
+          ctx.stroke();
 
-          // White golf ball
-          ctx.fillStyle = '#ffffff';
+          ctx.fillStyle = '#94a3b8';
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.arc(ballX, ballY, 4.5, 0, 2 * Math.PI);
+          ctx.ellipse(clubheadX, clubheadY, 7, 4, activeIntFrame > 230 && activeIntFrame < 350 ? -0.5 : 0.4, 0, 2 * Math.PI);
           ctx.fill();
-          ctx.strokeStyle = '#cbd5e1';
-          ctx.lineWidth = 0.8;
           ctx.stroke();
         }
-
-        // Club Shaft (steel shaft with metallic sheen)
-        ctx.strokeStyle = '#e2e8f0';
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.moveTo(handGripX, handGripY);
-        ctx.lineTo(clubheadX, clubheadY);
-        ctx.stroke();
-
-        // Clubhead (metallic gray clubhead)
-        ctx.fillStyle = '#94a3b8';
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.ellipse(clubheadX, clubheadY, 7, 4, activeIntFrame > 230 && activeIntFrame < 350 ? -0.4 : 0.3, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.stroke();
       }
     }
 
@@ -506,18 +634,21 @@ export default function SwingAnalysisView({
         if (currentKinematics) {
           const midSpineX = (midHipX + midShoulderX) / 2 + 10;
           const midSpineY = (midHipY + midShoulderY) / 2;
+          const isLoss = Math.abs(currentKinematics.spineAngleDelta) > 8 && activeIntFrame >= 240;
 
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-          ctx.strokeStyle = '#10b981';
+          ctx.fillStyle = isLoss ? 'rgba(239, 68, 68, 0.95)' : 'rgba(15, 23, 42, 0.85)';
+          ctx.strokeStyle = isLoss ? '#ef4444' : '#10b981';
           ctx.lineWidth = 1;
-          ctx.roundRect(midSpineX, midSpineY - 11, 86, 22, 6);
+          ctx.roundRect(midSpineX, midSpineY - 11, viewAngle === 'DOWN_THE_LINE' ? 108 : 88, 22, 6);
           ctx.fill();
           ctx.stroke();
 
-          ctx.fillStyle = '#10b981';
+          ctx.fillStyle = isLoss ? '#ffffff' : '#10b981';
           ctx.font = 'bold 10.5px sans-serif';
           ctx.fillText(
-            `${isSv ? 'Ryggrad' : 'Spine'}: ${currentKinematics.spineInclination}°`,
+            viewAngle === 'DOWN_THE_LINE'
+              ? `${isSv ? 'Lutning' : 'Spine'}: ${currentKinematics.spineInclination}°`
+              : `${isSv ? 'Ryggrad' : 'Spine'}: ${currentKinematics.spineInclination}°`,
             midSpineX + 7,
             midSpineY + 4
           );
@@ -577,7 +708,8 @@ export default function SwingAnalysisView({
     activePhase,
     activeIntFrame,
     language,
-    currentKinematics
+    currentKinematics,
+    viewAngle
   ]);
 
   return (
@@ -664,7 +796,7 @@ export default function SwingAnalysisView({
           {/* Camera View Angle Selector */}
           <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
             <button
-              onClick={() => setViewAngle('FACE_ON')}
+              onClick={() => handleViewAngleChange('FACE_ON')}
               className={`px-2 py-1 rounded-lg text-xs font-bold transition ${
                 viewAngle === 'FACE_ON' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'
               }`}
@@ -672,7 +804,7 @@ export default function SwingAnalysisView({
               Face-On
             </button>
             <button
-              onClick={() => setViewAngle('DOWN_THE_LINE')}
+              onClick={() => handleViewAngleChange('DOWN_THE_LINE')}
               className={`px-2 py-1 rounded-lg text-xs font-bold transition ${
                 viewAngle === 'DOWN_THE_LINE' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'
               }`}

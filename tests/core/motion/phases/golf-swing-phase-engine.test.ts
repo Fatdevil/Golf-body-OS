@@ -83,4 +83,33 @@ describe('GolfSwingPhaseEngine', () => {
     expect(impact.pelvisTurn).toBeDefined();
     expect(impact.shoulderTurn).toBeDefined();
   });
+
+  it('should detect all 10 P-positions on a Down-The-Line (DTL) 240 fps sequence', () => {
+    const dtlEngine = new GolfSwingPhaseEngine({ viewAngle: 'DOWN_THE_LINE' });
+    const dtlFrames = generate240FpsSwingSequence(480, 'OPTIMAL', 'DOWN_THE_LINE');
+    const result = dtlEngine.analyzeSequence(dtlFrames);
+
+    expect(result.viewAngle).toBe('DOWN_THE_LINE');
+    expect(result.detectedFrameRate).toBe(240);
+    expect(result.orderedEvents.length).toBe(10);
+
+    // Spine inclination at address in DTL should show athletic forward bend (~30-38°)
+    expect(result.kinematics.P1_ADDRESS.spineInclination).toBeGreaterThan(25);
+    expect(result.kinematics.P1_ADDRESS.spineInclination).toBeLessThan(42);
+
+    // Verify all 10 phases are temporally ordered
+    for (let i = 0; i < result.orderedEvents.length - 1; i++) {
+      expect(result.orderedEvents[i].frameIndex).toBeLessThan(result.orderedEvents[i + 1].frameIndex);
+    }
+  });
+
+  it('should detect Early Extension fault in Down-The-Line (DTL) view', () => {
+    const dtlEngine = new GolfSwingPhaseEngine({ viewAngle: 'DOWN_THE_LINE' });
+    const eeFrames = generate240FpsSwingSequence(480, 'EARLY_EXTENSION', 'DOWN_THE_LINE');
+    const result = dtlEngine.analyzeSequence(eeFrames);
+
+    const eeFault = result.faults.find(f => f.id === 'EARLY_EXTENSION');
+    expect(eeFault).toBeDefined();
+    expect(eeFault?.phaseDetected).toBe('P7_IMPACT');
+  });
 });
