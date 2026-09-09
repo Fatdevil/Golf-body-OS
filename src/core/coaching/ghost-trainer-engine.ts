@@ -193,9 +193,9 @@ export function getProCheckpointPoseFrame(
   const frameIdx = Math.min(seq.length - 1, Math.max(0, def.frameIndex240Fps));
   const baseFrame = seq[frameIdx];
 
-  // Base template is right-handed in mirrored (selfie) view.
-  // Flip when player is left-handed in selfie, or right-handed in unmirrored video.
-  const shouldFlip = isRightHanded !== isMirroredView;
+  // Base template is standard right-handed unmirrored video.
+  // Mirror if left-handed XOR mirrored selfie camera.
+  const shouldFlip = (!isRightHanded) !== isMirroredView;
   return shouldFlip ? mirrorPoseFrame(baseFrame) : baseFrame;
 }
 

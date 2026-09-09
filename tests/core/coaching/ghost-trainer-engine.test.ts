@@ -39,7 +39,8 @@ describe('Ghost Trainer Engine (P1-P10)', () => {
     const p4Cp = GHOST_CHECKPOINTS.find(c => c.id === 'P4_TOP_OF_BACKSWING')!;
     expect(p4Cp.frameIndex240Fps).toBe(230);
 
-    const result = evaluateGhostPoseMatch(topFrame, p4Cp, addressFrame, 'DOWN_THE_LINE', true, true);
+    // Test right-handed golfer in normal video mode
+    const result = evaluateGhostPoseMatch(topFrame, p4Cp, addressFrame, 'DOWN_THE_LINE', true, false);
 
     expect(result.checkpointId).toBe('P4_TOP_OF_BACKSWING');
     expect(result.matchScore).toBeGreaterThanOrEqual(80);
@@ -54,8 +55,23 @@ describe('Ghost Trainer Engine (P1-P10)', () => {
     const leftyTopFrame = mirrorPoseFrame(dtlSeq[230]);
     const p4Cp = GHOST_CHECKPOINTS.find(c => c.id === 'P4_TOP_OF_BACKSWING')!;
 
-    // Left-handed golfer in selfie view
-    const result = evaluateGhostPoseMatch(leftyTopFrame, p4Cp, addressFrame, 'DOWN_THE_LINE', false, true);
+    // Left-handed golfer in normal video view
+    const result = evaluateGhostPoseMatch(leftyTopFrame, p4Cp, addressFrame, 'DOWN_THE_LINE', false, false);
+
+    expect(result.checkpointId).toBe('P4_TOP_OF_BACKSWING');
+    expect(result.matchScore).toBeGreaterThanOrEqual(80);
+    expect(result.isLocked).toBe(true);
+  });
+
+  it('should support right-handed golfers in selfie mode and achieve high match score (>80%) at P4', () => {
+    const { mirrorPoseFrame } = require('../../../src/core/coordinates/pose-mirror');
+    const dtlSeq = generate240FpsSwingSequence(480, 'OPTIMAL', 'DOWN_THE_LINE');
+    // Front selfie camera mirrors the golfer's image
+    const selfieAddressFrame = mirrorPoseFrame(dtlSeq[0]);
+    const selfieTopFrame = mirrorPoseFrame(dtlSeq[230]);
+    const p4Cp = GHOST_CHECKPOINTS.find(c => c.id === 'P4_TOP_OF_BACKSWING')!;
+
+    const result = evaluateGhostPoseMatch(selfieTopFrame, p4Cp, selfieAddressFrame, 'DOWN_THE_LINE', true, true);
 
     expect(result.checkpointId).toBe('P4_TOP_OF_BACKSWING');
     expect(result.matchScore).toBeGreaterThanOrEqual(80);
@@ -63,20 +79,21 @@ describe('Ghost Trainer Engine (P1-P10)', () => {
   });
 
   it('should correctly flip Ghost between righty and lefty / video modes', () => {
-    const rightySelfie = getProCheckpointPoseFrame('P4_TOP_OF_BACKSWING', 'FACE_ON', true, true);
-    const leftySelfie = getProCheckpointPoseFrame('P4_TOP_OF_BACKSWING', 'FACE_ON', false, true);
     const rightyVideo = getProCheckpointPoseFrame('P4_TOP_OF_BACKSWING', 'FACE_ON', true, false);
+    const rightySelfie = getProCheckpointPoseFrame('P4_TOP_OF_BACKSWING', 'FACE_ON', true, true);
+    const leftyVideo = getProCheckpointPoseFrame('P4_TOP_OF_BACKSWING', 'FACE_ON', false, false);
 
-    const rsLW = rightySelfie.landmarks.find(l => l.id === 15); // LEFT_WRIST
-    const lsRW = leftySelfie.landmarks.find(l => l.id === 16);  // RIGHT_WRIST
-    expect(rsLW).toBeDefined();
-    expect(lsRW).toBeDefined();
-    // Lefty lead wrist (RIGHT_WRIST) X should be mirrored from Righty lead wrist (LEFT_WRIST)
-    expect(lsRW!.x).toBeCloseTo(1 - rsLW!.x);
+    const rvLW = rightyVideo.landmarks.find(l => l.id === 15); // LEFT_WRIST
+    const rsRW = rightySelfie.landmarks.find(l => l.id === 16); // RIGHT_WRIST
+    const lvRW = leftyVideo.landmarks.find(l => l.id === 16);   // RIGHT_WRIST
+    expect(rvLW).toBeDefined();
+    expect(rsRW).toBeDefined();
+    expect(lvRW).toBeDefined();
 
-    // Righty in unmirrored video should match lefty in selfie
-    const rvRW = rightyVideo.landmarks.find(l => l.id === 16);
-    expect(rvRW?.x).toBeCloseTo(lsRW!.x);
+    // Righty selfie lead wrist should be horizontally mirrored from righty video lead wrist
+    expect(rsRW!.x).toBeCloseTo(1 - rvLW!.x);
+    // Lefty video should match righty selfie
+    expect(lvRW!.x).toBeCloseTo(rsRW!.x);
   });
 
   it('should identify insufficient shoulder turn at P4 and trigger GHOST_ROTATE_MORE cue', () => {

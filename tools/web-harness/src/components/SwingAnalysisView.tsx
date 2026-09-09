@@ -495,10 +495,10 @@ export default function SwingAnalysisView({
     const height = canvas.height;
 
     // Unified Mirroring for Display:
-    // Base synthetic sequence is stored in selfie coordinates.
-    // In video mode (isMirroredView = false), flip to match standard broadcast view.
-    // In selfie mode (isMirroredView = true), display directly without flip.
-    const shouldFlipDisplay = !isMirroredView;
+    // Base synthetic sequence is stored in standard broadcast view.
+    // In video mode (isMirroredView = false), display directly without flip.
+    // In selfie mode (isMirroredView = true), flip horizontally to match mirror perspective.
+    const shouldFlipDisplay = isMirroredView;
     const displayFrame = shouldFlipDisplay ? mirrorPoseFrame(currentFrame) : currentFrame;
     const displayAddrFrame = frames[0] ? (shouldFlipDisplay ? mirrorPoseFrame(frames[0]) : frames[0]) : null;
 
@@ -801,7 +801,7 @@ export default function SwingAnalysisView({
             const tigerProg = frames.length > 1 ? activeIntFrame / (frames.length - 1) : 0;
             const refIdx = Math.min(tigerSeq.length - 1, Math.max(0, Math.round(tigerProg * (tigerSeq.length - 1))));
             const rawRef = tigerSeq[refIdx];
-            const shouldFlip = isRightHanded !== isMirroredView;
+            const shouldFlip = (!isRightHanded) !== isMirroredView;
             return shouldFlip ? mirrorPoseFrame(rawRef) : rawRef;
           })();
 

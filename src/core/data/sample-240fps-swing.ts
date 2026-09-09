@@ -433,9 +433,13 @@ function generate240FpsFaceOnSequence(
       shoulderAngleDeg = -18 - ease * (95 - 18);
       hipAngleDeg = -36 - ease * (90 - 36);
 
-      // Curved exit: hands sweep through P8 extension without sharp corner, then arc up to finish
-      const xRel = Math.sin((prog * Math.PI) / 2) * 0.25 - Math.sin(prog * Math.PI) * 0.04;
-      const yRel = (1 - Math.cos((prog * Math.PI) / 2)) * 0.35;
+      // Tiger's explosive exit: hands maintain post-impact speed through P8 extension, then arc up to finish
+      const exitEase = Math.sin(Math.min(1, prog * 2.0) * (Math.PI / 2));
+      const foldProg = Math.max(0, (prog - 0.20) / 0.80);
+      const foldEase = 0.5 - 0.5 * Math.cos(foldProg * Math.PI);
+
+      const xRel = exitEase * 0.14 + prog * 0.11;
+      const yRel = Math.sin(Math.min(1, prog * 1.6) * (Math.PI / 2)) * 0.18 + prog * 0.17;
       handX = 0.48 - xRel;
       handY = 0.54 - yRel;
       handZ = -0.02 - ease * 0.15;
@@ -446,15 +450,14 @@ function generate240FpsFaceOnSequence(
       currentLeftKneeX = 0.42;
       currentRightKneeX = 0.49 - ease * 0.06; // Closes against lead knee
 
-      // Lead arm: full extension through P8, then natural ~95° folding in P9-P10 as hands wrap
-      const p8Extension = Math.sin(Math.min(1, prog / 0.25) * Math.PI);
-      leftElbowX = 0.445 - ease * 0.155 - p8Extension * 0.02; // reaches 0.29 at finish
-      leftElbowY = 0.425 - ease * 0.085 + p8Extension * 0.02; // reaches 0.34 at finish (folded below hands!)
+      // Lead arm: straight extension through P8, then folds naturally at ~95° below hands at finish
+      leftElbowX = 0.445 - exitEase * 0.075 - foldEase * 0.080; // reaches 0.29 at finish
+      leftElbowY = 0.425 - exitEase * 0.063 - foldEase * 0.022; // reaches 0.34 at finish (folded below hands!)
       leftElbowZ = -ease * 0.10;
 
       // Trail arm: extends through P8, then folds across chest up to high finish
-      rightElbowX = 0.52 - ease * 0.16;   // reaches 0.36 at finish
-      rightElbowY = 0.425 - ease * 0.155; // reaches 0.27 at finish
+      rightElbowX = 0.520 - exitEase * 0.070 - foldEase * 0.090; // reaches 0.36 at finish
+      rightElbowY = 0.425 - exitEase * 0.045 - foldEase * 0.110; // reaches 0.27 at finish
       rightElbowZ = -ease * 0.12;
     } else {
       // Hold finish
@@ -740,15 +743,19 @@ function generate240FpsDtlSequence(
       headX = 0.42 + ease * 0.02;      // 0.44
       headY = 0.18 - ease * 0.04;      // 0.14
 
-      // HANDS & ARMS: Smooth inclined ellipse (eliminates boxy U completely!)
+      // HANDS & ARMS: Smooth inclined arc with continuous post-impact exit speed
+      const exitEase = Math.sin(Math.min(1, prog * 2.0) * (Math.PI / 2));
+      const foldProg = Math.max(0, (prog - 0.20) / 0.80);
+      const foldEase = 0.5 - 0.5 * Math.cos(foldProg * Math.PI);
+
       handX = 0.39 - Math.sin(prog * Math.PI) * 0.11 + ease * 0.07;
-      handY = 0.54 - ease * 0.36;
+      handY = 0.54 - (Math.sin(Math.min(1, prog * 1.6) * (Math.PI / 2)) * 0.18 + prog * 0.18);
       handZ = -0.02 - ease * 0.15;
 
-      leftElbowX = 0.42 - Math.sin(prog * Math.PI) * 0.08 - ease * 0.04;
-      leftElbowY = 0.42 - ease * 0.10;
-      rightElbowX = 0.45 - Math.sin(prog * Math.PI) * 0.07 - ease * 0.05;
-      rightElbowY = 0.43 - ease * 0.17;
+      leftElbowX = 0.42 - exitEase * 0.02 - foldEase * 0.02; // reaches 0.38
+      leftElbowY = 0.42 - exitEase * 0.05 - foldEase * 0.05; // reaches 0.32
+      rightElbowX = 0.45 - exitEase * 0.02 - foldEase * 0.03; // reaches 0.40
+      rightElbowY = 0.43 - exitEase * 0.06 - foldEase * 0.11; // reaches 0.26
     } else {
       // Hold elegant tour finish
       shoulderTurnDeg = -95;
