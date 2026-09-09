@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
-import { Play, Upload, Camera, RefreshCw, Volume2, VolumeX, Globe, Key, Bot, Sparkles, X, Check, Compass, Target, Trophy, SwitchCamera, Smartphone } from 'lucide-react';
+import { Play, Upload, Camera, RefreshCw, Volume2, VolumeX, Globe, Key, Bot, Sparkles, X, Check, Compass, Target, Trophy, SwitchCamera, Smartphone, QrCode } from 'lucide-react';
 import { convertWebResultToPoseFrame } from './adapter/web-mediapipe-adapter';
 import { TemporalPipeline } from '../../../src/core/motion/temporal-pipeline';
 import { PoseFrame, PoseSequence } from '../../../src/core/types/pose-frame';
@@ -158,6 +158,7 @@ export default function App() {
   const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
   const cameraFacingRef = useRef<'user' | 'environment'>('user');
   const [mobileTab, setMobileTab] = useState<'TEST' | 'REPORT'>('TEST');
+  const [showQrModal, setShowQrModal] = useState(false);
 
   const unlockAudio = () => {
     try {
@@ -1272,12 +1273,17 @@ export default function App() {
             </button>
           </div>
 
-          {/* Wi-Fi Guide Badge */}
-          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-[11px] text-emerald-300 font-mono">
-            <Smartphone size={13} className="text-emerald-400" />
-            <span>Wi-Fi (HTTPS):</span>
-            <span className="font-bold">https://192.168.68.54:5173</span>
-          </div>
+          {/* Wi-Fi Guide & QR Code Button */}
+          <button
+            onClick={() => setShowQrModal(true)}
+            type="button"
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-500/40 text-[11px] text-emerald-300 font-mono transition active:scale-95 cursor-pointer shadow-sm"
+            title="Klicka för att visa QR-kod att scanna med mobilen"
+          >
+            <QrCode size={14} className="text-emerald-400" />
+            <span>Mobil:</span>
+            <span className="font-bold underline">Scanna QR</span>
+          </button>
 
           {/* Mobile-Friendly Segmented View Switcher (Visible on screens < lg) */}
           <div className="lg:hidden flex ml-auto bg-gray-900 rounded-xl p-1 border border-gray-800 shadow-inner">
@@ -1874,6 +1880,57 @@ export default function App() {
                 <span>{language === 'sv-SE' ? 'Spara nyckel' : 'Save Key'}</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* QR Code Modal for Mobile Quick Scan */}
+      {showQrModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-3xl max-w-sm w-full p-6 shadow-2xl text-center space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-800 pb-3">
+              <div className="flex items-center gap-2.5 text-left">
+                <div className="p-2 rounded-xl bg-emerald-600/20 text-emerald-400 border border-emerald-500/30">
+                  <QrCode size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Scanna med mobilen</h3>
+                  <p className="text-xs text-gray-400">Golf Body OS på Wi-Fi</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowQrModal(false)}
+                className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-800"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl inline-block shadow-inner">
+              <img
+                src="/golf_body_qr.png"
+                alt="QR Code"
+                className="w-56 h-56 mx-auto object-contain"
+              />
+            </div>
+
+            <div className="space-y-1 text-xs text-gray-300">
+              <p className="font-mono text-emerald-400 font-semibold break-all text-[11px]">
+                https://192.168.68.54:5173/
+              </p>
+              <p className="text-[11px] text-gray-400 pt-1">
+                {language === 'sv-SE' 
+                  ? 'Öppna mobilens kamera och rikta den mot koden ovan för att öppna direkt.'
+                  : 'Point your phone camera at the QR code above to open directly.'}
+              </p>
+            </div>
+
+            <button
+              onClick={() => setShowQrModal(false)}
+              className="w-full py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-xl text-xs font-semibold transition"
+            >
+              {language === 'sv-SE' ? 'Stäng' : 'Close'}
+            </button>
           </div>
         </div>
       )}
