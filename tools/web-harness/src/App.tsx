@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
-import { Play, Upload, Camera, RefreshCw, Volume2, VolumeX, Globe, Key, Bot, Sparkles, X, Check, Compass, Target, Trophy } from 'lucide-react';
+import { Play, Upload, Camera, RefreshCw, Volume2, VolumeX, Globe, Key, Bot, Sparkles, X, Check, Compass, Target, Trophy, SwitchCamera, Smartphone } from 'lucide-react';
 import { convertWebResultToPoseFrame } from './adapter/web-mediapipe-adapter';
 import { TemporalPipeline } from '../../../src/core/motion/temporal-pipeline';
 import { PoseFrame, PoseSequence } from '../../../src/core/types/pose-frame';
@@ -153,6 +153,29 @@ export default function App() {
   const [golfBodyScoreResult, setGolfBodyScoreResult] = useState<GolfBodyScoreResult | null>(null);
   const modelShaRef = useRef('');
   const runPipelineRef = useRef<(frames: PoseSequence, traceBuilder: PipelineTraceBuilder) => DeviceValidationReport>(() => ({} as any));
+
+  // Mobile state & Safari Audio unlock
+  const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
+  const cameraFacingRef = useRef<'user' | 'environment'>('user');
+  const [mobileTab, setMobileTab] = useState<'TEST' | 'REPORT'>('TEST');
+
+  const unlockAudio = () => {
+    try {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        const silent = new SpeechSynthesisUtterance('');
+        window.speechSynthesis.speak(silent);
+      }
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        if (ctx.state === 'suspended') {
+          ctx.resume();
+        }
+      }
+    } catch {
+      // Ignore unlock errors
+    }
+  };
 
   const [isBriefingActive, setIsBriefingActive] = useState(false);
   const isBriefingActiveRef = useRef(false);
@@ -750,12 +773,28 @@ export default function App() {
     frameCacheRef.current.forEach(c => c.bitmap.close());
     frameCacheRef.current.clear();
     
+    unlockAudio();
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const constraints: MediaStreamConstraints = {
+        video: {
+          facingMode: cameraFacingRef.current,
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        },
+        audio: false
+      };
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err) {
+        console.warn('getUserMedia facingMode fallback to basic video', err);
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
       setMode('WEBCAM');
       modeRef.current = 'WEBCAM';
+      setMobileTab('TEST');
       processWebcamFrame();
       if (isScreeningFlowRef.current) {
         playScreeningBriefing();
@@ -767,8 +806,41 @@ export default function App() {
     }
   };
 
+  const toggleCameraFacing = async () => {
+    unlockAudio();
+    const nextFacing = cameraFacing === 'user' ? 'environment' : 'user';
+    setCameraFacing(nextFacing);
+    cameraFacingRef.current = nextFacing;
+
+    if (modeRef.current === 'WEBCAM' && videoRef.current && videoRef.current.srcObject) {
+      const currentStream = videoRef.current.srcObject as MediaStream;
+      currentStream.getTracks().forEach(track => track.stop());
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: nextFacing,
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          },
+          audio: false
+        });
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      } catch (err) {
+        console.error('Failed to flip camera:', err);
+      }
+    }
+  };
+
   const stopWebcam = () => {
     cancelBriefing();
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    setMobileTab('REPORT');
     if (isScreeningFlowRef.current) {
       liveCoachingEngineRef.current?.reset();
       liveRotationCoachingEngineRef.current?.reset();
@@ -1004,28 +1076,40 @@ export default function App() {
   if (isInitializing) return <div className="p-8 text-white">Loading MediaPipe Tasks Vision...</div>;
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-8 font-sans">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+    <div className="min-h-screen bg-gray-950 text-white p-3 sm:p-6 lg:p-8 font-sans">
+      <div className="max-w-6xl mx-auto space-y-5">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 sm:gap-4 pb-2 border-b border-gray-800">
           <div>
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-3xl font-bold">Golf Body OS</h1>
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">🏌️‍♂️</span>
+                <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+                  Golf Body OS
+                </h1>
+              </div>
+
               {/* Protocol Switcher */}
-              <div className="flex bg-gray-800 p-1 rounded-xl border border-gray-700 shadow-md">
+              <div className="flex flex-wrap bg-gray-900 p-1 rounded-xl border border-gray-800 shadow-md">
                 <button
-                  onClick={() => handleStartScreeningFlow()}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  onClick={() => {
+                    unlockAudio();
+                    handleStartScreeningFlow();
+                  }}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
                     isScreeningFlow
                       ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg border border-emerald-400/50'
                       : 'text-gray-400 hover:text-white'
                   }`}
                 >
                   <span>🏆</span>
-                  <span>{language === 'sv-SE' ? 'Hel screening (1+2)' : 'Full Screening (1+2)'}</span>
+                  <span>{language === 'sv-SE' ? 'Hel screening' : 'Full Screening'}</span>
                 </button>
                 <button
-                  onClick={() => handleSwitchProtocol('HIP_HINGE_V1')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  onClick={() => {
+                    unlockAudio();
+                    handleSwitchProtocol('HIP_HINGE_V1');
+                  }}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
                     !isScreeningFlow && activeProtocol === 'HIP_HINGE_V1'
                       ? 'bg-blue-600 text-white shadow'
                       : 'text-gray-400 hover:text-white'
@@ -1035,21 +1119,24 @@ export default function App() {
                   <span>{language === 'sv-SE' ? '1. Höftfällning' : '1. Hip Hinge'}</span>
                 </button>
                 <button
-                  onClick={() => handleSwitchProtocol('THORACIC_ROTATION_V1')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  onClick={() => {
+                    unlockAudio();
+                    handleSwitchProtocol('THORACIC_ROTATION_V1');
+                  }}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
                     !isScreeningFlow && activeProtocol === 'THORACIC_ROTATION_V1'
                       ? 'bg-purple-600 text-white shadow'
                       : 'text-gray-400 hover:text-white'
                   }`}
                 >
                   <span>🏌️</span>
-                  <span>{language === 'sv-SE' ? '2. Bröstryggsrotation' : '2. Thoracic Rotation'}</span>
+                  <span>{language === 'sv-SE' ? '2. Bröstrygg' : '2. Thoracic'}</span>
                 </button>
               </div>
             </div>
             <p className="text-gray-400 font-mono text-xs mt-1">
               {isScreeningFlow
-                ? (language === 'sv-SE' ? 'Sammanhängande screening: Test 1 Höftfällning (Sidovy) → Övergång → Test 2 Bröstryggsrotation (Framifrån) → Golf Body Score' : 'Continuous screening: Test 1 Hip Hinge (Side) → Transition → Test 2 Thoracic Turn (Front) → Golf Body Score')
+                ? (language === 'sv-SE' ? 'Sammanhängande: Test 1 Höftfällning (Sida) → Övergång → Test 2 Bröstryggsrotation (Fram) → Score' : 'Continuous: Test 1 Hip Hinge (Side) → Transition → Test 2 Thoracic (Front) → Score')
                 : activeProtocol === 'HIP_HINGE_V1'
                 ? (language === 'sv-SE' ? 'Sidovy (vänster) – Mäter höftvinkel, knävinkel och hållning' : 'Side view (left) – Measures hip hinge, knee flex & posture')
                 : (language === 'sv-SE' ? 'Framifrån – Mäter bröstryggsrotation (L/R), bäckenstabilitet och X-Factor' : 'Front view – Measures thoracic turn (L/R), pelvic stability & X-Factor')}
@@ -1057,129 +1144,173 @@ export default function App() {
           </div>
 
           {/* Audio Coach & Language Controls */}
-          <div className="flex items-center gap-3 bg-gray-800 px-4 py-2 rounded-xl border border-gray-700 shadow-md">
-            <div className="flex items-center gap-2 text-sm text-gray-300 font-medium">
-              <Globe size={18} className="text-blue-400" />
-              <div className="flex bg-gray-900 rounded-lg p-0.5 border border-gray-700">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 bg-gray-900/90 px-3 py-1.5 rounded-xl border border-gray-800 shadow-sm">
+            <div className="flex items-center gap-1.5 text-xs text-gray-300 font-medium">
+              <Globe size={15} className="text-blue-400" />
+              <div className="flex bg-gray-950 rounded-lg p-0.5 border border-gray-800">
                 <button 
-                  onClick={() => setLanguage('en-US')}
-                  className={`px-2.5 py-1 rounded-md text-xs font-bold transition ${language === 'en-US' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                  onClick={() => { unlockAudio(); setLanguage('en-US'); }}
+                  className={`px-2 py-0.5 rounded text-[11px] font-bold transition ${language === 'en-US' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
                 >
-                  🇺🇸 EN
+                  EN
                 </button>
                 <button 
-                  onClick={() => setLanguage('sv-SE')}
-                  className={`px-2.5 py-1 rounded-md text-xs font-bold transition ${language === 'sv-SE' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                  onClick={() => { unlockAudio(); setLanguage('sv-SE'); }}
+                  className={`px-2 py-0.5 rounded text-[11px] font-bold transition ${language === 'sv-SE' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
                 >
-                  🇸🇪 SV
+                  SV
                 </button>
               </div>
             </div>
 
-            <div className="w-[1px] h-6 bg-gray-700 mx-1" />
+            <div className="w-[1px] h-5 bg-gray-800" />
 
-            <div className="flex bg-gray-900 rounded-lg p-0.5 border border-gray-700">
+            <div className="flex bg-gray-950 rounded-lg p-0.5 border border-gray-800">
               <button
-                onClick={() => setCoachingMode('GUIDED')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold transition ${
+                onClick={() => { unlockAudio(); setCoachingMode('GUIDED'); }}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold transition ${
                   coachingMode === 'GUIDED' || coachingMode === 'FULL'
                     ? 'bg-emerald-600 text-white shadow'
                     : 'text-gray-400 hover:text-white'
                 }`}
-                title={language === 'sv-SE' ? 'Guidad: Leder tempot steg-för-steg + korrigeringar (Nybörjare / Screening)' : 'Guided: Leads movement tempo & all phases step-by-step + corrections (Beginner / Screening)'}
+                title={language === 'sv-SE' ? 'Guidad: Leder tempot steg-för-steg + korrigeringar (Nybörjare / Screening)' : 'Guided: Leads movement tempo & all phases step-by-step + corrections'}
               >
-                <Compass size={15} />
-                <span>{language === 'sv-SE' ? 'Guidad' : 'Guided'}</span>
+                <Compass size={13} />
+                <span className="hidden sm:inline">{language === 'sv-SE' ? 'Guidad' : 'Guided'}</span>
               </button>
 
               <button
-                onClick={() => setCoachingMode('CORRECTIVE')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold transition ${
+                onClick={() => { unlockAudio(); setCoachingMode('CORRECTIVE'); }}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold transition ${
                   coachingMode === 'CORRECTIVE'
                     ? 'bg-amber-600 text-white shadow'
                     : 'text-gray-400 hover:text-white'
                 }`}
-                title={language === 'sv-SE' ? 'Korrigerande: Helt tyst vid god teknik – griper bara in med röst vid fel (Van / Detaljstyrning)' : 'Corrective: Silent during clean technique – only intervenes on faults (Experienced)'}
+                title={language === 'sv-SE' ? 'Korrigerande: Helt tyst vid god teknik – griper bara in med röst vid fel' : 'Corrective: Silent during clean technique – only intervenes on faults'}
               >
-                <Target size={15} />
-                <span>{language === 'sv-SE' ? 'Korrigerande' : 'Corrective'}</span>
+                <Target size={13} />
+                <span className="hidden sm:inline">{language === 'sv-SE' ? 'Korrigerande' : 'Corrective'}</span>
               </button>
 
               <button
-                onClick={() => setCoachingMode('REPS_ONLY')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold transition ${
+                onClick={() => { unlockAudio(); setCoachingMode('REPS_ONLY'); }}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold transition ${
                   coachingMode === 'REPS_ONLY'
                     ? 'bg-indigo-600 text-white shadow'
                     : 'text-gray-400 hover:text-white'
                 }`}
-                title={language === 'sv-SE' ? 'Bara Reps: Räknar repetitioner utan avbrott eller tekniktips' : 'Reps Only: Counts reps only without chatter or technique cues'}
+                title={language === 'sv-SE' ? 'Bara Reps: Räknar repetitioner utan avbrott' : 'Reps Only: Counts reps only'}
               >
                 <span className="font-mono font-black text-xs">#</span>
-                <span>{language === 'sv-SE' ? 'Bara Reps' : 'Reps Only'}</span>
               </button>
 
               <button
-                onClick={() => setCoachingMode('MUTED')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold transition ${
+                onClick={() => { unlockAudio(); setCoachingMode('MUTED'); }}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold transition ${
                   coachingMode === 'MUTED'
                     ? 'bg-red-700 text-white shadow'
                     : 'text-gray-400 hover:text-white'
                 }`}
                 title={language === 'sv-SE' ? 'Stäng av röstcoachen helt' : 'Mute all audio'}
               >
-                <VolumeX size={15} />
-                <span>{language === 'sv-SE' ? 'Ljud Av' : 'Muted'}</span>
+                <VolumeX size={13} />
               </button>
             </div>
 
-            <div className="w-[1px] h-6 bg-gray-700 mx-1" />
+            <div className="w-[1px] h-5 bg-gray-800" />
 
             {/* Gemini API Key Button */}
             <button
               onClick={openKeyModal}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
                 hasGlobalKey
                   ? 'bg-purple-950/50 border-purple-500/60 text-purple-200 hover:bg-purple-900/60 shadow-sm'
                   : 'bg-amber-950/40 border-amber-500/50 text-amber-200 hover:bg-amber-900/50'
               }`}
               title={language === 'sv-SE' ? 'Hantera Google Gemini API-nyckel' : 'Manage Google Gemini API Key'}
             >
-              <Key size={14} className={hasGlobalKey ? 'text-purple-400' : 'text-amber-400'} />
-              <span>{hasGlobalKey ? 'Gemini AI: Aktiv' : (language === 'sv-SE' ? '🔑 API-nyckel' : '🔑 API Key')}</span>
-              {hasGlobalKey && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>}
+              <Key size={13} className={hasGlobalKey ? 'text-purple-400' : 'text-amber-400'} />
+              <span className="hidden sm:inline">{hasGlobalKey ? 'Gemini AI' : 'API-nyckel'}</span>
+              {hasGlobalKey && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>}
             </button>
           </div>
         </div>
 
-        <div className="flex gap-4 mb-8">
+        <div className="flex flex-wrap items-center gap-3">
           {mode === 'WEBCAM' ? (
-            <button onClick={stopWebcam} className="flex items-center gap-2 bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-semibold">
-              Stop Capture & Analyze
+            <button
+              onClick={stopWebcam}
+              className="flex items-center gap-2 bg-red-600 hover:bg-red-700 active:scale-95 px-4 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-red-600/30 transition"
+            >
+              <span>⏹</span> {language === 'sv-SE' ? 'Avsluta & Analysera' : 'Stop Capture & Analyze'}
             </button>
           ) : (
-            <button onClick={startWebcam} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-semibold">
-              <Camera size={20} /> Live Webcam
+            <button
+              onClick={() => { unlockAudio(); startWebcam(); }}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:scale-95 px-4 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-blue-600/30 transition"
+            >
+              <Camera size={18} /> {language === 'sv-SE' ? 'Starta Kamera' : 'Live Camera'}
+            </button>
+          )}
+
+          {mode === 'WEBCAM' && (
+            <button
+              onClick={toggleCameraFacing}
+              type="button"
+              className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-200 px-3.5 py-2.5 rounded-xl font-medium text-xs border border-gray-700 transition"
+              title={language === 'sv-SE' ? 'Växla mellan fram/bakkamera' : 'Switch between front/rear camera'}
+            >
+              <SwitchCamera size={16} />
+              <span>{cameraFacing === 'user' ? (language === 'sv-SE' ? 'Selfie' : 'Front') : (language === 'sv-SE' ? 'Bakre' : 'Rear')}</span>
             </button>
           )}
 
           <div className="relative">
             <input type="file" accept="video/*" onChange={handleFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" ref={fileInputRef} />
-            <button className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg font-semibold">
-              <Upload size={20} /> Upload Video
+            <button className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-300 px-3.5 py-2.5 rounded-xl font-medium text-xs border border-gray-700 transition">
+              <Upload size={16} /> {language === 'sv-SE' ? 'Ladda upp Video' : 'Upload Video'}
+            </button>
+          </div>
+
+          {/* Wi-Fi Guide Badge */}
+          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-[11px] text-emerald-300 font-mono">
+            <Smartphone size={13} className="text-emerald-400" />
+            <span>Wi-Fi:</span>
+            <span className="font-bold">http://192.168.68.54:5173</span>
+          </div>
+
+          {/* Mobile-Friendly Segmented View Switcher (Visible on screens < lg) */}
+          <div className="lg:hidden flex ml-auto bg-gray-900 rounded-xl p-1 border border-gray-800 shadow-inner">
+            <button
+              onClick={() => setMobileTab('TEST')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                mobileTab === 'TEST' ? 'bg-blue-600 text-white shadow' : 'text-gray-400'
+              }`}
+            >
+              📹 {language === 'sv-SE' ? 'Kamera' : 'Camera'}
+            </button>
+            <button
+              onClick={() => setMobileTab('REPORT')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                mobileTab === 'REPORT' ? 'bg-purple-600 text-white shadow' : 'text-gray-400'
+              }`}
+            >
+              <span>📊 {language === 'sv-SE' ? 'Rapport' : 'Report'}</span>
+              {(golfBodyScoreResult || report) && <span className="w-2 h-2 rounded-full bg-emerald-400"></span>}
             </button>
           </div>
           
-          <div className="flex gap-2 ml-auto">
-            <button onClick={runDeterminism1C} disabled={mode !== 'VIDEO' || running1C || running1D} className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 px-4 py-2 rounded-lg font-semibold">
-              <RefreshCw size={20} className={running1C ? 'animate-spin' : ''} /> 
-              {running1C ? 'Running...' : 'Run WEB-DV-1C'}
+          <div className="hidden lg:flex gap-2 ml-auto">
+            <button onClick={runDeterminism1C} disabled={mode !== 'VIDEO' || running1C || running1D} className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 px-3 py-1.5 rounded-lg text-xs font-semibold">
+              <RefreshCw size={14} className={running1C ? 'animate-spin' : ''} /> 
+              {running1C ? 'Running...' : 'WEB-DV-1C'}
             </button>
-            <button onClick={runDeterminism1D} disabled={mode !== 'VIDEO' || running1C || running1D} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-4 py-2 rounded-lg font-semibold">
-              <RefreshCw size={20} className={running1D ? 'animate-spin' : ''} /> 
-              {running1D ? 'Running...' : 'Run WEB-DV-1D'}
+            <button onClick={runDeterminism1D} disabled={mode !== 'VIDEO' || running1C || running1D} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-3 py-1.5 rounded-lg text-xs font-semibold">
+              <RefreshCw size={14} className={running1D ? 'animate-spin' : ''} /> 
+              {running1D ? 'Running...' : 'WEB-DV-1D'}
             </button>
-            <button onClick={() => setAnnotationMode(true)} disabled={mode !== 'VIDEO' || running1C || running1D || lastReps.length !== 3} className="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 px-4 py-2 rounded-lg font-semibold">
-              Start GT-1 Annotation
+            <button onClick={() => setAnnotationMode(true)} disabled={mode !== 'VIDEO' || running1C || running1D || lastReps.length !== 3} className="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 px-3 py-1.5 rounded-lg text-xs font-semibold">
+              GT-1
             </button>
           </div>
         </div>
@@ -1244,11 +1375,37 @@ export default function App() {
                 </div>
               </div>
             )}
-            <div className="flex gap-8">
+            <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
             {/* Video Feed */}
-            <div className="relative w-[640px] h-[480px] bg-black rounded-xl overflow-hidden shadow-2xl flex-shrink-0">
-              <video ref={videoRef} onEnded={handleVideoEnded} className="absolute inset-0 w-full h-full object-contain" playsInline muted controls />
-              <canvas ref={canvasRef} width={640} height={480} className="absolute inset-0 w-full h-full object-contain pointer-events-none" />
+            <div className={`relative w-full max-w-[640px] aspect-[4/3] mx-auto bg-black rounded-2xl overflow-hidden shadow-2xl flex-shrink-0 border border-gray-800 ${mobileTab !== 'TEST' ? 'hidden lg:block' : 'block'}`}>
+              <video
+                ref={videoRef}
+                onEnded={handleVideoEnded}
+                className="absolute inset-0 w-full h-full object-contain"
+                playsInline
+                muted
+                autoPlay
+                controls={mode === 'VIDEO'}
+              />
+              <canvas
+                ref={canvasRef}
+                width={640}
+                height={480}
+                className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+              />
+
+              {/* Floating Camera Flip Button */}
+              {mode === 'WEBCAM' && (
+                <button
+                  onClick={toggleCameraFacing}
+                  type="button"
+                  className="absolute top-3 right-3 z-30 bg-black/60 hover:bg-black/80 active:scale-95 text-white p-2.5 rounded-full border border-white/20 backdrop-blur shadow-lg transition flex items-center gap-1.5 text-xs font-semibold pointer-events-auto"
+                  title={language === 'sv-SE' ? 'Växla kamera (Fram/Bak)' : 'Flip Camera (Front/Rear)'}
+                >
+                  <SwitchCamera size={18} className="text-white" />
+                  <span className="hidden sm:inline">{cameraFacing === 'user' ? (language === 'sv-SE' ? 'Selfie' : 'Front') : (language === 'sv-SE' ? 'Bakre' : 'Rear')}</span>
+                </button>
+              )}
               
               {/* Live Audio Coach Subtitle Banner */}
               {activeSubtitle && (
@@ -1312,7 +1469,7 @@ export default function App() {
             </div>
 
           {/* Report Panel */}
-          <div className="flex-1 bg-gray-800 p-6 rounded-xl overflow-y-auto max-h-[800px]">
+          <div className={`flex-1 bg-gray-800 p-4 sm:p-6 rounded-2xl overflow-y-auto max-h-[800px] border border-gray-700/60 ${mobileTab !== 'REPORT' ? 'hidden lg:block' : 'block'}`}>
             <h2 className="text-xl font-semibold mb-4">Pipeline Report</h2>
             {golfBodyScoreResult ? (
               <div className="space-y-4">
@@ -1617,7 +1774,7 @@ export default function App() {
 
         {/* Full-Width Holistic Screening Report Card */}
         {golfBodyScoreResult && (
-          <div className="mt-8">
+          <div className={`mt-8 ${mobileTab !== 'REPORT' ? 'hidden lg:block' : 'block'}`}>
             <HolisticReportCard
               score={golfBodyScoreResult}
               hingeReport={screeningHingeReport}
@@ -1625,7 +1782,10 @@ export default function App() {
               spokenCues={spokenCues}
               language={language}
               aiCoachService={aiCoachServiceRef.current}
-              onRestartScreening={handleStartScreeningFlow}
+              onRestartScreening={() => {
+                setMobileTab('TEST');
+                handleStartScreeningFlow();
+              }}
             />
           </div>
         )}

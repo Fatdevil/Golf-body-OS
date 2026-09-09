@@ -11,5 +11,9 @@ export default defineConfig({
       '@core': path.resolve(__dirname, '../../src/core'),
       '@protocols': path.resolve(__dirname, '../../src/protocols')
     }
+  },
+  server: {
+    host: true,
+    port: 5173
   }
 })
