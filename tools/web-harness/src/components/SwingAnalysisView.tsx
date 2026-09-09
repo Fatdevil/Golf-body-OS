@@ -44,6 +44,7 @@ import {
   SampleSwingType
 } from '../../../../src/core/data/sample-240fps-swing';
 import { renderSportsboxAvatar } from './SportsboxAvatarRenderer';
+import NeonSentinel3DView from './NeonSentinel3DView';
 import { GolfBodyScoreResult } from '../../../../src/core/metrics/golf-body-score';
 import { SupportedLanguage, getPhrase } from '../../../../src/core/coaching/i18n/locales';
 import { getLandmark, extractPhaseKinematics } from '../../../../src/core/metrics/golf-swing-metrics';
@@ -71,6 +72,7 @@ export default function SwingAnalysisView({
 
   // Analysis settings
   const [viewAngle, setViewAngle] = useState<CameraViewAngle>('FACE_ON');
+  const [avatarRenderMode, setAvatarRenderMode] = useState<'3D_NEON' | '2D_STUDIO'>('3D_NEON');
   const [isRightHanded, setIsRightHanded] = useState<boolean>(true);
   const [isMirroredView, setIsMirroredView] = useState<boolean>(false);
   const [sampleType, setSampleType] = useState<SampleSwingType>('OPTIMAL');
@@ -1180,6 +1182,34 @@ export default function SwingAnalysisView({
               <span>{isSv ? 'Normal' : 'Video'}</span>
             </button>
           </div>
+
+          {/* Avatar Render Mode: 3D Neon Sentinel vs 2D Studio */}
+          <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
+            <button
+              onClick={() => setAvatarRenderMode('3D_NEON')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                avatarRenderMode === '3D_NEON'
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-950'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title={isSv ? '3D Neon Sentinel (Three.js WebGL med 360° rotation)' : '3D Neon Sentinel (Three.js WebGL with 360° orbit)'}
+            >
+              <span>🤖</span>
+              <span>3D Sentinel</span>
+            </button>
+            <button
+              onClick={() => setAvatarRenderMode('2D_STUDIO')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                avatarRenderMode === '2D_STUDIO'
+                  ? 'bg-cyan-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title={isSv ? '2D Biomekanisk Studio' : '2D Biomechanical Studio'}
+            >
+              <span>📊</span>
+              <span>2D Studio</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1378,58 +1408,79 @@ export default function SwingAnalysisView({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         {/* Left Column: 240 fps Canvas + Player Controls (7 cols) */}
         <div className="lg:col-span-7 flex flex-col gap-3">
-          {/* Canvas Container */}
-          <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 aspect-[16/10] max-h-[360px] flex items-center justify-center shadow-2xl">
-            <canvas ref={canvasRef} width={640} height={480} className="w-full h-full object-contain" />
+          {/* Main Visualizer Container */}
+          <div className={`relative rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 flex items-center justify-center shadow-2xl transition-all ${
+            avatarRenderMode === '3D_NEON' ? 'h-[460px]' : 'aspect-[16/10] max-h-[360px]'
+          }`}>
+            {avatarRenderMode === '3D_NEON' ? (
+              <NeonSentinel3DView
+                currentFrame={currentFrame}
+                addressFrame={frames[0]}
+                frames={frames}
+                activeIntFrame={activeIntFrame}
+                viewAngle={viewAngle}
+                isRightHanded={isRightHanded}
+                isMirroredView={isMirroredView}
+                showClubheadPath={showClubTrajectory}
+                showHandTrajectory={showHandTrajectory}
+                metrics={currentKinematics}
+                onViewAngleChange={handleViewAngleChange}
+                className="w-full h-full"
+              />
+            ) : (
+              <>
+                <canvas ref={canvasRef} width={640} height={480} className="w-full h-full object-contain" />
 
-            {/* Overlay toggle chips */}
-            <div className="absolute bottom-3 left-3 flex gap-1.5 bg-slate-900/80 backdrop-blur p-1 rounded-xl border border-slate-800">
-              <button
-                onClick={() => setShowSkeleton((v) => !v)}
-                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition ${
-                  showSkeleton ? 'bg-blue-600 text-white' : 'text-slate-400'
-                }`}
-              >
-                Skelett
-              </button>
-              <button
-                onClick={() => setShowAngles((v) => !v)}
-                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition ${
-                  showAngles ? 'bg-emerald-600 text-white' : 'text-slate-400'
-                }`}
-              >
-                Vinklar
-              </button>
-              <button
-                onClick={() => setShowClubTrajectory((v) => !v)}
-                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1 ${
-                  showClubTrajectory ? 'bg-cyan-600 text-white shadow' : 'text-slate-400'
-                }`}
-                title={isSv ? 'Visa klubbhuvudets bana' : 'Show clubhead path'}
-              >
-                <span>⛳</span>
-                <span>{isSv ? 'Klubbana' : 'Club Arc'}</span>
-              </button>
-              <button
-                onClick={() => setShowHandTrajectory((v) => !v)}
-                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1 ${
-                  showHandTrajectory ? 'bg-amber-600 text-white shadow' : 'text-slate-400'
-                }`}
-                title={isSv ? 'Visa händernas rörelsebana' : 'Show hand path'}
-              >
-                <span>🖐️</span>
-                <span>{isSv ? 'Handbana' : 'Hand Path'}</span>
-              </button>
-              <button
-                onClick={() => setShowGhost((v) => !v)}
-                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1 ${
-                  showGhost ? 'bg-amber-500 text-slate-950 font-black shadow' : 'text-slate-400'
-                }`}
-              >
-                <span>👻</span>
-                <span>Tiger Ghost</span>
-              </button>
-            </div>
+                {/* Overlay toggle chips */}
+                <div className="absolute bottom-3 left-3 flex gap-1.5 bg-slate-900/80 backdrop-blur p-1 rounded-xl border border-slate-800">
+                  <button
+                    onClick={() => setShowSkeleton((v) => !v)}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition ${
+                      showSkeleton ? 'bg-blue-600 text-white' : 'text-slate-400'
+                    }`}
+                  >
+                    Skelett
+                  </button>
+                  <button
+                    onClick={() => setShowAngles((v) => !v)}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition ${
+                      showAngles ? 'bg-emerald-600 text-white' : 'text-slate-400'
+                    }`}
+                  >
+                    Vinklar
+                  </button>
+                  <button
+                    onClick={() => setShowClubTrajectory((v) => !v)}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1 ${
+                      showClubTrajectory ? 'bg-cyan-600 text-white shadow' : 'text-slate-400'
+                    }`}
+                    title={isSv ? 'Visa klubbhuvudets bana' : 'Show clubhead path'}
+                  >
+                    <span>⛳</span>
+                    <span>{isSv ? 'Klubbana' : 'Club Arc'}</span>
+                  </button>
+                  <button
+                    onClick={() => setShowHandTrajectory((v) => !v)}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1 ${
+                      showHandTrajectory ? 'bg-amber-600 text-white shadow' : 'text-slate-400'
+                    }`}
+                    title={isSv ? 'Visa händernas rörelsebana' : 'Show hand path'}
+                  >
+                    <span>🖐️</span>
+                    <span>{isSv ? 'Handbana' : 'Hand Path'}</span>
+                  </button>
+                  <button
+                    onClick={() => setShowGhost((v) => !v)}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1 ${
+                      showGhost ? 'bg-amber-500 text-slate-950 font-black shadow' : 'text-slate-400'
+                    }`}
+                  >
+                    <span>👻</span>
+                    <span>Tiger Ghost</span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Scrubber Timeline Bar */}
