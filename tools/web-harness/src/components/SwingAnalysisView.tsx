@@ -1409,8 +1409,8 @@ export default function SwingAnalysisView({
         {/* Left Column: 240 fps Canvas + Player Controls (7 cols) */}
         <div className="lg:col-span-7 flex flex-col gap-3">
           {/* Main Visualizer Container */}
-          <div className={`relative rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 flex items-center justify-center shadow-2xl transition-all ${
-            avatarRenderMode === '3D_NEON' ? 'h-[460px]' : 'aspect-[16/10] max-h-[360px]'
+          <div className={`relative rounded-2xl overflow-hidden border flex items-center justify-center shadow-2xl transition-all ${
+            avatarRenderMode === '3D_NEON' ? 'h-[460px] bg-white border-slate-700/60' : 'aspect-[16/10] max-h-[360px] bg-slate-950 border-slate-800'
           }`}>
             {avatarRenderMode === '3D_NEON' ? (
               <NeonSentinel3DView

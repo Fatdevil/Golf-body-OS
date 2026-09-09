@@ -48,6 +48,7 @@ export default function NeonSentinel3DView({
   const clubheadPingRef = useRef<THREE.Mesh | null>(null);
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [modelReady, setModelReady] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [currentCameraPreset, setCurrentCameraPreset] = useState<'FACE_ON' | 'DTL' | 'HERO' | 'FREE'>('FACE_ON');
 
@@ -90,11 +91,11 @@ export default function NeonSentinel3DView({
     const width = container.clientWidth || 800;
     const height = container.clientHeight || 560;
 
-    // 1. Scene
+    // 1. Scene - Crisp Pure White Studio
     const scene = new THREE.Scene();
     sceneRef.current = scene;
-    scene.background = new THREE.Color('#070b14'); // Dark sci-fi golf simulator studio
-    scene.fog = new THREE.FogExp2('#070b14', 0.12);
+    scene.background = new THREE.Color('#ffffff'); // Pure white studio
+    scene.fog = new THREE.FogExp2('#ffffff', 0.03);
 
     // 2. Camera
     const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 50);
@@ -108,7 +109,7 @@ export default function NeonSentinel3DView({
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.2;
+    renderer.toneMappingExposure = 1.15;
     rendererRef.current = renderer;
     container.appendChild(renderer.domElement);
 
@@ -122,42 +123,41 @@ export default function NeonSentinel3DView({
     controls.maxDistance = 5.5;
     controlsRef.current = controls;
 
-    // 5. Studio Environment & Lighting
-    // Subtle ambient
-    const ambient = new THREE.AmbientLight('#1e293b', 0.9);
+    // 5. Studio Environment & Lighting (Bright Apple/Design showroom lighting)
+    const ambient = new THREE.AmbientLight('#ffffff', 1.4);
     scene.add(ambient);
 
-    // Key front light (soft spotlight)
-    const keyLight = new THREE.DirectionalLight('#ffffff', 2.8);
-    keyLight.position.set(1.5, 3.5, 3.0);
+    // Key front light (casts soft shadow beneath feet)
+    const keyLight = new THREE.DirectionalLight('#ffffff', 2.5);
+    keyLight.position.set(2.0, 4.0, 3.0);
     keyLight.castShadow = true;
-    keyLight.shadow.mapSize.width = 1024;
-    keyLight.shadow.mapSize.height = 1024;
+    keyLight.shadow.mapSize.width = 2048;
+    keyLight.shadow.mapSize.height = 2048;
     keyLight.shadow.bias = -0.0005;
     scene.add(keyLight);
 
-    // Fill light (subtle blue/cyan tint)
-    const fillLight = new THREE.DirectionalLight('#38bdf8', 1.4);
-    fillLight.position.set(-2.5, 2.0, 1.5);
+    // Soft fill light
+    const fillLight = new THREE.DirectionalLight('#f1f5f9', 0.9);
+    fillLight.position.set(-2.5, 2.5, 2.0);
     scene.add(fillLight);
 
-    // Cyan Rim Light from behind (makes carbon armor edges glow)
-    const rimLight = new THREE.DirectionalLight('#00f0ff', 3.0);
-    rimLight.position.set(0, 2.5, -2.8);
+    // Cyan Accent Rim Light from behind (makes carbon armor edges pop against white)
+    const rimLight = new THREE.DirectionalLight('#00f0ff', 2.0);
+    rimLight.position.set(0, 2.8, -2.8);
     scene.add(rimLight);
 
-    // Warm green turf bounce light
-    const turfBounce = new THREE.DirectionalLight('#10b981', 0.6);
+    // Warm green turf reflection
+    const turfBounce = new THREE.DirectionalLight('#10b981', 0.4);
     turfBounce.position.set(0, -1.0, 0);
     scene.add(turfBounce);
 
-    // 6. Circular Golf Simulator Stage
+    // 6. Circular Golf Simulator Stage (Pearl White Studio Floor)
     const stageRadius = 2.0;
     const stageGeo = new THREE.CylinderGeometry(stageRadius, stageRadius, 0.04, 64);
     const stageMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color('#0c1322'),
-      metalness: 0.8,
-      roughness: 0.35
+      color: new THREE.Color('#f8fafc'), // Pearl white studio surface
+      metalness: 0.12,
+      roughness: 0.75
     });
     const stage = new THREE.Mesh(stageGeo, stageMat);
     stage.position.y = -0.02;
@@ -172,8 +172,8 @@ export default function NeonSentinel3DView({
     ring.position.y = 0.001;
     scene.add(ring);
 
-    // Subtle alignment grid on stage
-    const grid = new THREE.GridHelper(stageRadius * 1.8, 18, '#00f0ff', '#1e293b');
+    // Subtle alignment grid on stage (clean light slate/gray)
+    const grid = new THREE.GridHelper(stageRadius * 1.8, 18, '#06b6d4', '#e2e8f0');
     grid.position.y = 0.002;
     scene.add(grid);
 
@@ -297,6 +297,7 @@ export default function NeonSentinel3DView({
         model.position.set(0, 0, 0);
         scene.add(model);
         setIsLoading(false);
+        setModelReady(true);
       },
       undefined,
       (err) => {
@@ -381,12 +382,20 @@ export default function NeonSentinel3DView({
       const baseQuat = initialQuats[boneName];
       if (!bone || !baseQuat) return;
 
-      const dir = new THREE.Vector3().subVectors(target, start).normalize();
-      if (dir.lengthSq() < 0.001) return;
+      const worldDir = new THREE.Vector3().subVectors(target, start).normalize();
+      if (worldDir.lengthSq() < 0.001) return;
+
+      // Transform target direction into parent bone coordinate frame
+      const localDir = worldDir.clone();
+      if (bone.parent) {
+        const parentWorldQuat = new THREE.Quaternion();
+        bone.parent.getWorldQuaternion(parentWorldQuat);
+        localDir.applyQuaternion(parentWorldQuat.invert());
+      }
 
       // Bone local default points along +Y (0, 1, 0)
       const defaultDir = new THREE.Vector3(0, 1, 0);
-      const q = new THREE.Quaternion().setFromUnitVectors(defaultDir, dir);
+      const q = new THREE.Quaternion().setFromUnitVectors(defaultDir, localDir);
       bone.quaternion.copy(q);
     };
 
@@ -457,7 +466,7 @@ export default function NeonSentinel3DView({
     if (skinnedMesh) {
       skinnedMesh.skeleton.update();
     }
-  }, [currentFrame, metrics, isRightHanded, isMirroredView]);
+  }, [currentFrame, metrics, isRightHanded, isMirroredView, modelReady]);
 
   // 3D Toptracer Arc
   useEffect(() => {
@@ -527,7 +536,7 @@ export default function NeonSentinel3DView({
       {/* Top Floating View Controls */}
       <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none z-10">
         {/* Badge */}
-        <div className="bg-slate-900/90 border border-cyan-500/40 rounded-xl px-3 py-1.5 backdrop-blur-md flex items-center gap-2 pointer-events-auto shadow-lg">
+        <div className="bg-slate-900/95 border border-slate-700/80 rounded-xl px-3 py-1.5 backdrop-blur-md flex items-center gap-2 pointer-events-auto shadow-2xl">
           <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
           <span className="text-xs font-black tracking-wider text-cyan-300">NEON SENTINEL 3D</span>
           <span className="text-[10px] bg-cyan-950 text-cyan-400 px-1.5 py-0.5 rounded border border-cyan-700/50">
@@ -536,7 +545,7 @@ export default function NeonSentinel3DView({
         </div>
 
         {/* 3D Camera Angles */}
-        <div className="flex bg-slate-900/90 p-1 rounded-xl border border-slate-800 backdrop-blur-md gap-1 pointer-events-auto shadow-lg">
+        <div className="flex bg-slate-900/95 p-1 rounded-xl border border-slate-700/80 backdrop-blur-md gap-1 pointer-events-auto shadow-2xl">
           <button
             onClick={() => setCameraPreset('FACE_ON')}
             className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
@@ -571,7 +580,7 @@ export default function NeonSentinel3DView({
       </div>
 
       {/* Bottom Floating Hint */}
-      <div className="absolute bottom-3 left-4 text-[11px] text-slate-400/80 bg-slate-950/70 px-2.5 py-1 rounded-lg border border-slate-800/60 backdrop-blur-sm pointer-events-none">
+      <div className="absolute bottom-3 left-4 text-[11px] text-slate-200 bg-slate-900/90 px-3 py-1.5 rounded-xl border border-slate-700/80 backdrop-blur-md shadow-xl pointer-events-none">
         💡 Klicka & dra med musen för 360° fri rotation runt golfaren • Scrolla för zoom
       </div>
     </div>
