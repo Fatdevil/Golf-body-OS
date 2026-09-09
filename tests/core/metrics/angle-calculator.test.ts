@@ -65,27 +65,64 @@ describe('Angle Calculator', () => {
     });
   });
 
-  describe('trunkInclination', () => {
-    it('standing upright (≈0°)', () => {
+  describe('trunkInclination (unsigned magnitude from vertical)', () => {
+    it('perfectly vertical upright = 0°', () => {
       expect(trunkInclination({ x: 0, y: 10 }, { x: 0, y: 0 })).toBeCloseTo(0);
     });
 
-    it('horizontal (≈90°)', () => {
+    it('30° forward tilt = 30°', () => {
+      // 30 degrees from vertical means dy = cos(30), dx = sin(30)
+      const dy = Math.cos(30 * Math.PI / 180) * 10;
+      const dx = Math.sin(30 * Math.PI / 180) * 10;
+      expect(trunkInclination({ x: dx, y: dy }, { x: 0, y: 0 })).toBeCloseTo(30);
+    });
+
+    it('45° forward tilt = 45°', () => {
+      expect(trunkInclination({ x: 10, y: 10 }, { x: 0, y: 0 })).toBeCloseTo(45);
+    });
+
+    it('horizontal = 90°', () => {
       expect(trunkInclination({ x: 10, y: 0 }, { x: 0, y: 0 })).toBeCloseTo(90);
     });
 
-    it('45° lean', () => {
-      expect(trunkInclination({ x: 10, y: 10 }, { x: 0, y: 0 })).toBeCloseTo(45);
+    it('backward lean (signed direction omitted) = unsigned magnitude', () => {
+      // 30 degrees BACKWARD (negative dx) should still return +30°
+      const dy = Math.cos(30 * Math.PI / 180) * 10;
+      const dx = -Math.sin(30 * Math.PI / 180) * 10;
+      expect(trunkInclination({ x: dx, y: dy }, { x: 0, y: 0 })).toBeCloseTo(30);
+    });
+
+    it('image Y-axis inversion handling (if raw image coords are passed, it should yield >90)', () => {
+      // If someone accidentally passes raw Image (Y-down) coords where hip.y > shoulder.y
+      // The math assumes Y-up, so it will interpret the torso as pointing DOWNWARDS, yielding ~150° instead of 30°.
+      // The fix is applied in the adapter via Coordinate Transform Engine.
+      const dy = -Math.cos(30 * Math.PI / 180) * 10; // Inverted Y
+      const dx = Math.sin(30 * Math.PI / 180) * 10;
+      expect(trunkInclination({ x: dx, y: dy }, { x: 0, y: 0 })).toBeCloseTo(150);
     });
   });
 
-  describe('shankInclination', () => {
-    it('vertical (0°)', () => {
+  describe('shankInclination (unsigned magnitude from vertical)', () => {
+    it('perfectly vertical tibia = 0°', () => {
       expect(shankInclination({ x: 0, y: 10 }, { x: 0, y: 0 })).toBeCloseTo(0);
     });
 
-    it('forward lean', () => {
-      expect(shankInclination({ x: 5, y: 5 }, { x: 0, y: 0 })).toBeCloseTo(45);
+    it('5° forward lean = 5°', () => {
+      const dy = Math.cos(5 * Math.PI / 180) * 10;
+      const dx = Math.sin(5 * Math.PI / 180) * 10;
+      expect(shankInclination({ x: dx, y: dy }, { x: 0, y: 0 })).toBeCloseTo(5);
+    });
+
+    it('10° forward lean = 10°', () => {
+      const dy = Math.cos(10 * Math.PI / 180) * 10;
+      const dx = Math.sin(10 * Math.PI / 180) * 10;
+      expect(shankInclination({ x: dx, y: dy }, { x: 0, y: 0 })).toBeCloseTo(10);
+    });
+
+    it('10° backward lean = 10° (unsigned convention)', () => {
+      const dy = Math.cos(10 * Math.PI / 180) * 10;
+      const dx = -Math.sin(10 * Math.PI / 180) * 10; // backward
+      expect(shankInclination({ x: dx, y: dy }, { x: 0, y: 0 })).toBeCloseTo(10);
     });
   });
 

@@ -7,6 +7,13 @@ export const VERSION = 'PIPELINE_TRACE_V1';
 /**
  * Comprehensive trace of a pipeline execution.
  */
+export interface DecodedFrameTrace {
+  sequenceIndex: number;
+  mediaTimeMs: number;
+  presentedFrame?: number;
+  duplicateTimestamp: boolean;
+}
+
 export interface PipelineTrace {
   /** Unique session identifier */
   sessionId: string;
@@ -22,8 +29,10 @@ export interface PipelineTrace {
   poseModel: string;
   /** Variant of the pose model */
   poseVariant: 'FULL';
-  /** Version of the pose model */
-  poseModelVersion: string;
+  /** Version of the pose model asset */
+  assetVersion: string | null;
+  /** Version of the MediaPipe Tasks runtime */
+  runtimeVersion: string;
   /** SHA256 hash of the model file */
   modelSha256: string;
   /** Version of the smoothing/filtering pipeline */
@@ -52,10 +61,24 @@ export interface PipelineTrace {
   livePoseGuidanceFps?: number;
   /** Target frame rate for the analysis pipeline, if applicable */
   analysisTargetFps?: number;
+  
   /** ISO timestamp of capture start */
   startTimestamp: string;
   /** ISO timestamp of capture end */
   endTimestamp: string;
-  /** Total duration in milliseconds */
-  durationMs: number;
+  /** Total wall clock duration in milliseconds */
+  wallClockDurationMs: number;
+
+  inputMediaSha256?: string;
+  mediaStartTimestamp?: string;
+  mediaEndTimestamp?: string;
+  mediaDurationMs?: number;
+
+  sourceDecodedFrameCount: number;
+  poseInferenceFrameCount: number;
+  presentedFrameCallbacks: number;
+  missedPresentedFrames: number;
+  duplicateMediaTimestamps: number;
+
+  decodedFrames?: DecodedFrameTrace[];
 }

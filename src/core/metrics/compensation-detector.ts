@@ -10,6 +10,11 @@ export interface CompensationFlag {
   type: CompensationType;
   severity: 'WARNING' | 'FAIL';
   description: string;
+  triggeredRule: string;
+  observedValue: number;
+  threshold: number;
+  unit: string;
+  repIndex: number;
   frameRange?: [number, number];
 }
 
@@ -22,16 +27,33 @@ export function detectCompensations(
   neckAlignment: number,
   posteriorHipShift: number,
   trunkInclination: number,
-  hipHingeAngle2D: number
+  hipHingeAngle2D: number,
+  repIndex: number
 ): CompensationFlag[] {
   const flags: CompensationFlag[] = [];
 
   // EXCESSIVE_KNEE_BEND: kneeAngle < 135° OR shankInclination > 18°
-  if (kneeAngle < 135 || shankInclination > 18) {
+  if (kneeAngle < 135) {
     flags.push({
       type: 'EXCESSIVE_KNEE_BEND',
       severity: 'FAIL',
-      description: 'Excessive knee bend or forward shin angle during hinge',
+      description: 'Excessive knee bend during hinge',
+      triggeredRule: 'KNEE_ANGLE_LT_135',
+      observedValue: kneeAngle,
+      threshold: 135,
+      unit: 'degrees',
+      repIndex
+    });
+  } else if (shankInclination > 18) {
+    flags.push({
+      type: 'EXCESSIVE_KNEE_BEND',
+      severity: 'FAIL',
+      description: 'Forward shin angle during hinge',
+      triggeredRule: 'SHANK_INCLINATION_GT_18',
+      observedValue: shankInclination,
+      threshold: 18,
+      unit: 'degrees',
+      repIndex
     });
   }
 
@@ -41,6 +63,11 @@ export function detectCompensations(
       type: 'CERVICAL_CRANING',
       severity: 'WARNING',
       description: 'Cervical spine not neutral with torso',
+      triggeredRule: 'NECK_ALIGNMENT_DEV_GT_30',
+      observedValue: Math.abs(neckAlignment - 180),
+      threshold: 30,
+      unit: 'degrees',
+      repIndex
     });
   }
 
@@ -50,6 +77,11 @@ export function detectCompensations(
       type: 'LOCKED_KNEES',
       severity: 'WARNING',
       description: 'Knees completely locked during hinge',
+      triggeredRule: 'KNEE_GT_175_AND_HINGE_LT_135',
+      observedValue: kneeAngle,
+      threshold: 175,
+      unit: 'degrees',
+      repIndex
     });
   }
 
@@ -58,7 +90,12 @@ export function detectCompensations(
     flags.push({
       type: 'NO_POSTERIOR_SHIFT',
       severity: 'FAIL',
-      description: 'Failure to shift hips backwards during torso inclination',
+      description: 'Insufficient posterior weight shift during hinge',
+      triggeredRule: 'HIP_SHIFT_LT_0.05_AND_TRUNK_GT_40',
+      observedValue: posteriorHipShift,
+      threshold: 0.05,
+      unit: 'ratio',
+      repIndex
     });
   }
 

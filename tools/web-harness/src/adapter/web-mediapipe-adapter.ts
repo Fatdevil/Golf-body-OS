@@ -1,6 +1,7 @@
 import { PoseLandmarkerResult } from '@mediapipe/tasks-vision';
 import { Landmark, LandmarkId } from '../../../../src/core/types/landmark';
 import { PoseFrame } from '../../../../src/core/types/pose-frame';
+import { normalizedToBodyMetric, TransformParams } from '../../../../src/core/coordinates/coordinate-transform';
 
 export class WebBridgeError extends Error {
   code: string;
@@ -30,20 +31,35 @@ export function convertWebResultToPoseFrame(
 
   const landmarks: Landmark[] = [];
   
+  // Mock transform params for browser (assumes upright camera)
+  const transformParams: TransformParams = {
+    sensorOrientation: 0,
+    imageWidth: width,
+    imageHeight: height,
+    previewWidth: width,
+    previewHeight: height,
+    isMirrored: false,
+    gravityVector: { x: 0, y: -1, z: 0 }
+  };
+  
   for (let i = 0; i < 33; i++) {
     const lm = rawLandmarks[i] as any;
     const visibility = lm.visibility ?? 1.0;
     const presence = lm.presence ?? visibility;
+    const lmZ = lm.z ?? 0;
 
-    if (!Number.isFinite(lm.x) || !Number.isFinite(lm.y) || !Number.isFinite(lm.z) || 
-        !Number.isFinite(visibility) || !Number.isFinite(presence)) {
-      throw new WebBridgeError('Landmark values must be finite');
+    if (!Number.isFinite(lm.x) || !Number.isFinite(lm.y)) {
+      throw new WebBridgeError('Landmark X and Y values must be finite');
     }
+    
+    // Transform to BODY_METRIC_SPACE
+    const metric = normalizedToBodyMetric({ x: lm.x, y: lm.y }, transformParams);
+
     landmarks.push({
       id: i as LandmarkId,
-      x: lm.x,
-      y: lm.y,
-      z: lm.z,
+      x: metric.x,
+      y: metric.y,
+      z: lmZ,
       visibility,
       presence
     });
@@ -58,11 +74,16 @@ export function convertWebResultToPoseFrame(
         const lm = rawWorldLandmarks[i] as any;
         const visibility = lm.visibility ?? 1.0;
         const presence = lm.presence ?? visibility;
+        const lmZ = lm.z ?? 0;
+        
+        // Transform to BODY_METRIC_SPACE
+        const metric = normalizedToBodyMetric({ x: lm.x, y: lm.y }, transformParams);
+        
         worldLandmarks.push({
           id: i as LandmarkId,
-          x: lm.x,
-          y: lm.y,
-          z: lm.z,
+          x: metric.x,
+          y: metric.y,
+          z: lmZ,
           visibility,
           presence
         });

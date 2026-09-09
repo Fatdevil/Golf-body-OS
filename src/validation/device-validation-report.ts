@@ -15,7 +15,8 @@ export interface DeviceValidationReport {
 
   model: {
     variant: 'FULL';
-    version: string;
+    assetVersion: string | null;
+    runtimeVersion: string;
     sha256: string;
   };
 
@@ -27,13 +28,18 @@ export interface DeviceValidationReport {
     rawFrameCount: number;
     processedFrameCount: number;
     droppedFrameCount: number;
+    sourceDecodedFrameCount: number;
+    poseInferenceFrameCount: number;
+    presentedFrameCallbacks: number;
+    missedPresentedFrames: number;
+    duplicateMediaTimestamps: number;
   };
 
   inference: {
-    meanLatencyMs: number;
-    p50LatencyMs: number;
-    p95LatencyMs: number;
-    maxLatencyMs: number;
+    meanLatencyMs: number | null;
+    p50LatencyMs: number | null;
+    p95LatencyMs: number | null;
+    maxLatencyMs: number | null;
   };
 
   landmarks: {

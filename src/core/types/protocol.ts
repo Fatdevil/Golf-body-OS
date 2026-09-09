@@ -11,7 +11,7 @@ export const VERSION = 'PROTOCOL_V1';
 export type CameraView = 'FRONT' | 'SIDE' | 'BACK';
 
 /** Standardized body side */
-export type BodySide = 'LEFT' | 'RIGHT';
+export type BodySide = 'LEFT' | 'RIGHT' | 'BILATERAL';
 
 /**
  * Step-by-step instruction for user setup or movement.

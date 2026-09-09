@@ -7,8 +7,8 @@ describe('One Euro Filter', () => {
     const out = [];
     
     for (let i = 0; i < 100; i++) {
-      // Add random noise [-0.5, 0.5]
-      const noise = Math.random() - 0.5;
+      // Deterministic noise [-0.5, 0.5]
+      const noise = Math.sin(i * 1.5) * 0.5;
       out.push(filter.filter(value + noise, i * 16));
     }
     

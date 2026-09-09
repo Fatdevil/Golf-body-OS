@@ -22,6 +22,7 @@ export interface TemporalPipelineConfig {
   protocol: TestProtocol;
   filterConfig?: OneEuroFilterConfig;
   phaseConfig?: PhaseConfig;
+  activeStartTimeMs?: number;
 }
 
 export interface TemporalPipelineResult {
@@ -43,19 +44,26 @@ export class TemporalPipeline {
     this.config = config;
   }
 
-  process(frames: PoseFrame[]): TemporalPipelineResult {
+  process(frames: PoseFrame[], injectedTraceBuilder?: PipelineTraceBuilder): TemporalPipelineResult {
     const sessionId = `session_${Date.now()}`;
-    const traceBuilder = new PipelineTraceBuilder(sessionId);
-    traceBuilder.setDevice('UNKNOWN_DEVICE', 'UNKNOWN_OS')
-      .setCamera('UNKNOWN_RES', 30)
-      .setPoseModel('UNKNOWN_MODEL', 'UNKNOWN_VER', 'UNKNOWN_SHA')
-      .setVersions('V1', 'V1', this.config.protocol.id, 'V1')
-      .setAnalysisMode('RECORDED', 30, 30)
-      .setTimestamps(new Date().toISOString(), new Date().toISOString())
-      .setConfidence(0)
-      .setFrameCounts(frames.length, frames.length, 0, 0);
+    const traceBuilder = injectedTraceBuilder || new PipelineTraceBuilder(sessionId);
+    
+    if (!injectedTraceBuilder) {
+      traceBuilder.setDevice('UNKNOWN_DEVICE', 'UNKNOWN_OS')
+        .setCamera('UNKNOWN_RES', 30)
+        .setPoseModel('UNKNOWN_MODEL', 'UNKNOWN_VER', null, 'UNKNOWN_SHA')
+        .setVersions('V1', 'V1', this.config.protocol.id, 'V1')
+        .setAnalysisMode('RECORDED', 30, 30)
+        .setTimestamps(new Date().toISOString(), new Date().toISOString())
+        .setConfidence(0);
+    }
 
     if (frames.length === 0) {
+      traceBuilder.setFrameCounts(0, 0, 0, 0);
+      traceBuilder.setTimestamps(new Date().toISOString(), new Date().toISOString());
+      traceBuilder.setVersions('V1', 'V1', 'V1', 'V1');
+      traceBuilder.setConfidence(0);
+      
       return {
         status: 'FAILED',
         repetitions: [],
@@ -95,6 +103,13 @@ export class TemporalPipeline {
     const endpointBuffer = new Map<number, import('../types/landmark').Landmark[]>();
 
     for (const frame of frames) {
+      // Before ACTIVE state, we just pass the frame through the smoother to keep it warm, 
+      // but we do NOT run phase detection or metric extraction.
+      if (this.config.activeStartTimeMs !== undefined && frame.timestampMs < this.config.activeStartTimeMs) {
+        smoother.smooth(frame);
+        continue;
+      }
+
       // 1. validate visibility
       let visSum = 0;
       let visCount = 0;
@@ -117,7 +132,7 @@ export class TemporalPipeline {
       const smoothedFrame = smoother.smooth(frame);
       const landmarks = smoothedFrame.landmarks;
 
-      if (!baselineLandmarks && phaseEngine.currentPhase === 'READY') {
+      if (!baselineLandmarks) {
         baselineLandmarks = landmarks;
       }
 
@@ -161,7 +176,37 @@ export class TemporalPipeline {
       } else if ((prevPhase as string) === 'ENDPOINT' && (currentPhase as string) !== 'ENDPOINT') {
         const endVel = this.config.phaseConfig?.endpointVelocityThreshold ?? 5;
         const endFrames = this.config.phaseConfig?.endpointStableFrames ?? 5;
-        const endpoint = endpointDetector.detectEndpoint(endVel, endFrames, minVisibility);
+        let endpoint = endpointDetector.detectEndpoint(endVel, endFrames, minVisibility);
+        if (!endpoint) {
+          endpoint = endpointDetector.detectEndpoint(endVel, 3, minVisibility);
+        }
+        if (!endpoint) {
+          endpoint = endpointDetector.detectEndpoint(endVel * 1.5, 2, minVisibility);
+        }
+        if (!endpoint && endpointBuffer.size > 0) {
+          let minAngle = Infinity;
+          let bestFrameId = -1;
+          for (const [fId, lms] of endpointBuffer.entries()) {
+            const sh = lms.find(l => l.id === shoulderId);
+            const h = lms.find(l => l.id === hipId);
+            const kn = lms.find(l => l.id === kneeId);
+            if (sh && h && kn) {
+              const ang = interiorAngle(sh, h, kn);
+              if (ang < minAngle) {
+                minAngle = ang;
+                bestFrameId = fId;
+              }
+            }
+          }
+          if (bestFrameId !== -1) {
+            endpoint = {
+              value: minAngle,
+              stableFrameCount: 1,
+              confidence: 1.0,
+              frameRange: [bestFrameId, bestFrameId]
+            };
+          }
+        }
         
         if (endpoint && baselineLandmarks) {
           const endpointFrameId = Math.floor((endpoint.frameRange[0] + endpoint.frameRange[1]) / 2);
@@ -172,7 +217,7 @@ export class TemporalPipeline {
           
           if (targetLandmarks) {
             try {
-              const rep = extractRepMetrics(targetLandmarks, baselineLandmarks, endpointFrameId, side as 'LEFT' | 'RIGHT', false);
+              const rep = extractRepMetrics(targetLandmarks, baselineLandmarks, endpointFrameId, side as 'LEFT' | 'RIGHT', false, repNumber);
               rep.repNumber = repNumber++;
               reps.push(rep);
             } catch (e) {
@@ -190,13 +235,43 @@ export class TemporalPipeline {
     if ((prevPhase as string) === 'ENDPOINT') {
       const endVel = this.config.phaseConfig?.endpointVelocityThreshold ?? 5;
       const endFrames = this.config.phaseConfig?.endpointStableFrames ?? 5;
-      const endpoint = endpointDetector.detectEndpoint(endVel, endFrames, minVisibility);
+      let endpoint = endpointDetector.detectEndpoint(endVel, endFrames, minVisibility);
+      if (!endpoint) {
+        endpoint = endpointDetector.detectEndpoint(endVel, 3, minVisibility);
+      }
+      if (!endpoint) {
+        endpoint = endpointDetector.detectEndpoint(endVel * 1.5, 2, minVisibility);
+      }
+      if (!endpoint && endpointBuffer.size > 0) {
+        let minAngle = Infinity;
+        let bestFrameId = -1;
+        for (const [fId, lms] of endpointBuffer.entries()) {
+          const sh = lms.find(l => l.id === (side === 'LEFT' ? LandmarkId.LEFT_SHOULDER : LandmarkId.RIGHT_SHOULDER));
+          const h = lms.find(l => l.id === (side === 'LEFT' ? LandmarkId.LEFT_HIP : LandmarkId.RIGHT_HIP));
+          const kn = lms.find(l => l.id === (side === 'LEFT' ? LandmarkId.LEFT_KNEE : LandmarkId.RIGHT_KNEE));
+          if (sh && h && kn) {
+            const ang = interiorAngle(sh, h, kn);
+            if (ang < minAngle) {
+              minAngle = ang;
+              bestFrameId = fId;
+            }
+          }
+        }
+        if (bestFrameId !== -1) {
+          endpoint = {
+            value: minAngle,
+            stableFrameCount: 1,
+            confidence: 1.0,
+            frameRange: [bestFrameId, bestFrameId]
+          };
+        }
+      }
       if (endpoint && baselineLandmarks) {
         const endpointFrameId = Math.floor((endpoint.frameRange[0] + endpoint.frameRange[1]) / 2);
         let targetLandmarks = endpointBuffer.get(endpointFrameId) || endpointBuffer.get(endpoint.frameRange[0]);
         if (targetLandmarks) {
           try {
-            const rep = extractRepMetrics(targetLandmarks, baselineLandmarks, endpointFrameId, side as 'LEFT' | 'RIGHT', false);
+            const rep = extractRepMetrics(targetLandmarks, baselineLandmarks, endpointFrameId, side as 'LEFT' | 'RIGHT', false, repNumber);
             rep.repNumber = repNumber++;
             reps.push(rep);
           } catch (e) {}
@@ -219,6 +294,14 @@ export class TemporalPipeline {
     const confidence = confidenceEngine.calculate(confidenceInput);
 
     // Rules handling
+    traceBuilder.setFrameCounts(frames.length, validFramesCount, 0, rejectedFramesCount);
+    traceBuilder.setTimestamps(
+      new Date(frames[0].timestampMs).toISOString(),
+      new Date(frames[frames.length - 1].timestampMs).toISOString()
+    );
+    traceBuilder.setVersions('V1', 'V1', 'V1', 'V1');
+    traceBuilder.setConfidence(confidence.overall);
+
     if (validFramesCount < (protocol.minFrames ?? 90)) {
       return {
         status: 'FAILED',

@@ -41,6 +41,7 @@ export interface RepetitionResult {
   posteriorHipShift: MetricValue;
   compensations: CompensationFlag[];
   endpointFrameRange: [number, number];
+  endpointFrameId: number;
 }
 
 /**
@@ -66,6 +67,7 @@ export function extractRepMetrics(
   endpointFrameId: number,
   side: 'LEFT' | 'RIGHT' = 'LEFT',
   facingRight: boolean = false,
+  repIndex: number = 1
 ): RepetitionResult {
   const isLeft = side === 'LEFT';
 
@@ -123,6 +125,7 @@ export function extractRepMetrics(
     hipShift,
     trunkInc,
     hipHingeAngle,
+    repIndex
   );
 
   return {
@@ -159,5 +162,6 @@ export function extractRepMetrics(
     },
     compensations,
     endpointFrameRange: [endpointFrameId, endpointFrameId],
+    endpointFrameId,
   };
 }
