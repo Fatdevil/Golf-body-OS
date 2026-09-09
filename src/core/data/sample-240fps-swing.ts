@@ -198,7 +198,9 @@ function generate240FpsFaceOnSequence(
 
 /**
  * Generates Down-The-Line (DTL) 240 fps golf swing sequence (profile sagittal view).
- * Golfer stands in profile facing target to the left. Glutes on Tush Line (X = 0.62) at address.
+ * Golfer stands in profile facing target to the left.
+ * Features authentic knee flexion, dynamic weight shift to posted lead leg,
+ * trail foot heel release onto toe, folding elbows, and classic high tour finish.
  */
 function generate240FpsDtlSequence(
   totalFrames = 480,
@@ -208,44 +210,42 @@ function generate240FpsDtlSequence(
   const fps = 240;
   const frameDurationMs = 1000 / fps;
 
-  // Key landmarks in DTL view:
-  // Target is to the LEFT (Screen -X)
   // Ball is placed on turf at X = 0.34, Y = 0.905
   // Turf ground is at Y = 0.92
 
   for (let i = 0; i < totalFrames; i++) {
     const timestampMs = Math.round(i * frameDurationMs * 10) / 10;
 
-    // Address Baselines (Profile Sagittal View)
-    // Feet stance
-    let leftAnkleX = 0.52;  // Lead foot
-    const leftAnkleY = 0.88;
-    let rightAnkleX = 0.56; // Trail foot
+    // Base address coordinates
+    let leftAnkleX = 0.52;
+    let leftAnkleY = 0.88;
+    let rightAnkleX = 0.56;
     let rightAnkleY = 0.88;
     let rightHeelY = 0.90;
 
-    // Knees
     let leftKneeX = 0.49;
+    let leftKneeY = 0.70;
     let rightKneeX = 0.52;
-    let kneeY = 0.70;
+    let rightKneeY = 0.70;
 
-    // Pelvis & Tush Line (Address hip depth X = 0.60, Tush line at 0.62)
     let hipX = 0.60;
     let hipY = 0.52;
     let pelvisThrustZ = 0;
 
-    // Torso / Spine (Forward bend ~33°)
     let shoulderX = 0.455;
     let shoulderY = 0.30;
     let headX = 0.42;
     let headY = 0.18;
 
-    // Hands
     let handX = 0.44;
     let handY = 0.56;
     let handZ = 0.0;
 
-    // Phase progression
+    let leftElbowX = 0.44;
+    let leftElbowY = 0.43;
+    let rightElbowX = 0.47;
+    let rightElbowY = 0.43;
+
     let shoulderTurnDeg = 0;
     let pelvisTurnDeg = 0;
 
@@ -257,9 +257,15 @@ function generate240FpsDtlSequence(
       hipY = 0.52;
       shoulderX = 0.455;
       shoulderY = 0.30;
+      headX = 0.42;
+      headY = 0.18;
       handX = 0.44;
       handY = 0.56;
       handZ = 0.0;
+      leftElbowX = 0.44;
+      leftElbowY = 0.43;
+      rightElbowX = 0.47;
+      rightElbowY = 0.43;
     } else if (i <= 230) {
       // Backswing (P1 -> P4)
       const prog = (i - 40) / (230 - 40);
@@ -267,49 +273,65 @@ function generate240FpsDtlSequence(
       shoulderTurnDeg = ease * 92;
       pelvisTurnDeg = ease * 44;
 
-      // Hips coil and right glute pushes deep into Tush Line
+      // Hips coil and right glute deepens into Tush Line (0.60 -> 0.62)
       if (swingType === 'SWAY') {
-        // Sway in DTL: loses hip hinge depth and drifts forward/out of posture
         hipX = 0.60 - ease * 0.06;
       } else {
-        hipX = 0.60 + ease * 0.01; // Deep glute load into Tush Line
+        hipX = 0.60 + ease * 0.015;
       }
 
+      // Knee action: lead knee flexes soft inward; trail knee braces
+      leftKneeX = 0.49 - ease * 0.02;
+      leftKneeY = 0.70 + ease * 0.015;
+      rightKneeX = 0.52 + ease * 0.005;
+
       // Hands elevate along swing plane to top
-      handX = 0.44 + ease * 0.16; // Hands move back to X = 0.60
-      handY = 0.56 - ease * 0.36; // Hands reach top elevation Y = 0.20
+      handX = 0.44 + ease * 0.14; // Hands reach X = 0.58
+      handY = 0.56 - ease * 0.36; // Hands reach top Y = 0.20
       handZ = ease * 0.20;
 
-      // Shoulders turn (left shoulder moves in, right moves back)
-      shoulderX = 0.455 + ease * 0.03;
-      shoulderY = 0.30 - ease * 0.02;
+      // Elbows: lead arm straight, trail arm folds into waiter-tray 90° angle tucked under hands
+      leftElbowX = 0.44 + ease * 0.07; // 0.51
+      leftElbowY = 0.43 - ease * 0.18; // 0.25
+      rightElbowX = 0.47 + ease * 0.07; // 0.54
+      rightElbowY = 0.43 - ease * 0.11; // 0.32 (tucked lower than hands!)
+
+      shoulderX = 0.455 + ease * 0.02;
+      shoulderY = 0.30 - ease * 0.01;
     } else if (i <= 290) {
-      // Downswing (P4 -> P7) — rapid transition & impact
+      // Downswing (P4 -> P7)
       const prog = (i - 230) / (290 - 230);
       const ease = Math.pow(prog, 1.8);
 
       shoulderTurnDeg = 92 - ease * (92 + 18);
       pelvisTurnDeg = 44 - ease * (44 + 36);
 
-      // Hands drop into the slot along shaft plane and reach impact forward shaft lean
-      handX = 0.60 - ease * 0.20; // Reaches X = 0.40 at impact (forward shaft lean to ball at 0.34)
-      handY = 0.20 + ease * 0.34; // Reaches lowest strike point Y = 0.54
+      // Hands drop into the slot along delivery plane to forward shaft lean at impact
+      handX = 0.58 - ease * 0.19; // Reaches X = 0.39 at impact
+      handY = 0.20 + ease * 0.34; // Reaches Y = 0.54 at impact
       handZ = 0.20 - ease * 0.22;
 
-      // EARLY EXTENSION vs OPTIMAL
+      // Elbows: trail elbow drops down & tucks into trail hip (slot shallowing), lead arm extends
+      leftElbowX = 0.51 - ease * 0.09; // 0.42
+      leftElbowY = 0.25 + ease * 0.17; // 0.42
+      rightElbowX = 0.54 - ease * 0.09; // 0.45
+      rightElbowY = 0.32 + ease * 0.11; // 0.43
+
+      // Knees & Feet: lead knee begins posting; trail knee kicks in; trail heel begins release
+      leftKneeX = 0.47 + ease * 0.03;  // 0.50
+      rightKneeX = 0.52 - ease * 0.03; // 0.49
+      rightHeelY = 0.90 - ease * 0.02; // 0.88
+
       if (swingType === 'EARLY_EXTENSION' && prog > 0.25) {
         const eeFactor = Math.pow((prog - 0.25) / 0.75, 1.5);
-        // Pelvis thrusts forward towards ball line, leaving Tush Line (0.60 -> 0.49)
         hipX = 0.60 - eeFactor * 0.11;
         hipY = 0.52 - eeFactor * 0.03;
         pelvisThrustZ = eeFactor * 0.15;
 
-        // Torso straightens up (chest lifts up, loss of forward spine angle 33° -> 12°)
         shoulderY = 0.30 - eeFactor * 0.08;
         shoulderX = 0.455 + eeFactor * 0.07;
         headY = 0.18 - eeFactor * 0.06;
       } else {
-        // Optimal: Glute stays glued to Tush Line!
         hipX = 0.60 - ease * 0.005;
         hipY = 0.52;
         shoulderX = 0.455;
@@ -323,47 +345,72 @@ function generate240FpsDtlSequence(
       shoulderTurnDeg = -18 - ease * (95 - 18);
       pelvisTurnDeg = -36 - ease * (90 - 36);
 
-      // Hands release along target line then wrap up over lead shoulder
-      if (prog < 0.35) {
-        // Release phase (P8): extending straight down the target line to the left
-        const relProg = prog / 0.35;
-        handX = 0.40 - relProg * 0.14; // Reaches X = 0.26
-        handY = 0.54 - relProg * 0.02;
+      // LEAD LEG POSTS UP TALL & STRAIGHT; TRAIL FOOT PEELS ONTO TOE
+      leftKneeX = 0.50 - ease * 0.04; // 0.46
+      leftKneeY = 0.70 - ease * 0.04; // 0.66
+      leftAnkleX = 0.52 - ease * 0.02; // 0.50
+
+      rightHeelY = 0.88 - ease * 0.10; // 0.78 (heel elevated high on toe!)
+      rightAnkleY = 0.88 - ease * 0.08; // 0.80
+      rightAnkleX = 0.56 - ease * 0.05; // 0.51
+      rightKneeX = 0.49 - ease * 0.02;  // 0.47
+      rightKneeY = 0.70 - ease * 0.02;  // 0.68
+
+      // Pelvis clears forward and stands tall
+      hipX = 0.60 - ease * 0.12; // 0.48
+      hipY = 0.52 - ease * 0.05; // 0.47
+      shoulderX = 0.455 + ease * 0.02; // 0.475
+      shoulderY = 0.30 - ease * 0.06;  // 0.24 (tall upright finish)
+      headX = 0.42 + ease * 0.02;      // 0.44
+      headY = 0.18 - ease * 0.04;      // 0.14
+
+      // HANDS & ARMS: release along line at P8, then WRAP HIGH OVER LEAD SHOULDER AT FINISH
+      if (prog < 0.25) {
+        // P8 Release: extending down the target line to the left
+        const relProg = prog / 0.25;
+        handX = 0.39 - relProg * 0.14; // Reaches X = 0.25
+        handY = 0.54 - relProg * 0.02; // Y = 0.52
+        leftElbowX = 0.42 - relProg * 0.08; // 0.34
+        leftElbowY = 0.42;
+        rightElbowX = 0.45 - relProg * 0.08; // 0.37
+        rightElbowY = 0.43;
       } else {
-        // Re-hinge into finish
-        const finProg = (prog - 0.35) / 0.65;
+        // Re-hinge into high tour wrap finish
+        const finProg = (prog - 0.25) / 0.75;
         const finEase = 0.5 - 0.5 * Math.cos(finProg * Math.PI);
-        handX = 0.26 + finEase * 0.14; // Reaches X = 0.40
-        handY = 0.52 - finEase * 0.30; // High finish Y = 0.22
+        handX = 0.25 + finEase * 0.21; // Hands finish high beside lead ear at X = 0.46
+        handY = 0.52 - finEase * 0.34; // Hands finish high at Y = 0.18
+        leftElbowX = 0.34 + finEase * 0.08; // 0.42
+        leftElbowY = 0.42 - finEase * 0.16; // 0.26
+        rightElbowX = 0.37 + finEase * 0.11; // 0.48
+        rightElbowY = 0.43 - finEase * 0.15; // 0.28
       }
       handZ = -0.02 - ease * 0.15;
-
-      // Body clears into tall balanced finish
-      hipX = 0.60 - ease * 0.12; // Pelvis posts up forward
-      hipY = 0.52 - ease * 0.04;
-      shoulderX = 0.455 + ease * 0.02;
-      shoulderY = 0.30 - ease * 0.06; // Torso stands tall
-      headY = 0.18 - ease * 0.03;
-
-      // Trail foot elevates onto toe
-      rightHeelY = 0.90 - ease * 0.07;
-      rightAnkleY = 0.88 - ease * 0.05;
-      rightAnkleX = 0.56 - ease * 0.03;
     } else {
-      // Hold finish
+      // Hold elegant tour finish
       shoulderTurnDeg = -95;
       pelvisTurnDeg = -90;
-      handX = 0.40;
-      handY = 0.22;
+      handX = 0.46;
+      handY = 0.18;
       handZ = -0.17;
+      leftElbowX = 0.42;
+      leftElbowY = 0.26;
+      rightElbowX = 0.48;
+      rightElbowY = 0.28;
       hipX = 0.48;
-      hipY = 0.48;
+      hipY = 0.47;
       shoulderX = 0.475;
       shoulderY = 0.24;
-      headY = 0.15;
-      rightHeelY = 0.83;
-      rightAnkleY = 0.83;
-      rightAnkleX = 0.53;
+      headX = 0.44;
+      headY = 0.14;
+      leftAnkleX = 0.50;
+      leftKneeX = 0.46;
+      leftKneeY = 0.66;
+      rightHeelY = 0.78;
+      rightAnkleY = 0.80;
+      rightAnkleX = 0.51;
+      rightKneeX = 0.47;
+      rightKneeY = 0.68;
     }
 
     // Convert 3D turn into shoulder/hip coordinates
@@ -382,24 +429,24 @@ function generate240FpsDtlSequence(
     const lhZ = -0.05 - hipOffsetZ + pelvisThrustZ;
     const rhZ = 0.05 + hipOffsetZ + pelvisThrustZ;
 
-    // Elbows: in Chicken Wing at P8, lead elbow flares back
+    // Elbows: Chicken Wing simulation at P8
     let leadElbowOffsetX = 0;
-    if (swingType === 'CHICKEN_WING' && i >= 290 && i <= 360) {
-      leadElbowOffsetX = 0.08; // Flaring lead elbow backward
+    if (swingType === 'CHICKEN_WING' && i >= 290 && i <= 340) {
+      leadElbowOffsetX = 0.07; // Flaring lead elbow backward
     }
 
     const landmarks: Landmark[] = [
       lm(LandmarkId.NOSE, headX, headY, 0),
       lm(LandmarkId.LEFT_SHOULDER, lsX, shoulderY, lsZ),
       lm(LandmarkId.RIGHT_SHOULDER, rsX, shoulderY, rsZ),
-      lm(LandmarkId.LEFT_ELBOW, (lsX + handX) / 2 + leadElbowOffsetX, (shoulderY + handY) / 2, lsZ / 2),
-      lm(LandmarkId.RIGHT_ELBOW, (rsX + handX) / 2 + 0.02, (shoulderY + handY) / 2, rsZ / 2),
+      lm(LandmarkId.LEFT_ELBOW, leftElbowX + leadElbowOffsetX, leftElbowY, lsZ / 2),
+      lm(LandmarkId.RIGHT_ELBOW, rightElbowX, rightElbowY, rsZ / 2),
       lm(LandmarkId.LEFT_WRIST, handX - 0.01, handY, handZ),
       lm(LandmarkId.RIGHT_WRIST, handX + 0.01, handY, handZ),
       lm(LandmarkId.LEFT_HIP, lhX, hipY, lhZ),
       lm(LandmarkId.RIGHT_HIP, rhX, hipY, rhZ),
-      lm(LandmarkId.LEFT_KNEE, leftKneeX, kneeY, -0.04),
-      lm(LandmarkId.RIGHT_KNEE, rightKneeX, kneeY, 0.04),
+      lm(LandmarkId.LEFT_KNEE, leftKneeX, leftKneeY, -0.04),
+      lm(LandmarkId.RIGHT_KNEE, rightKneeX, rightKneeY, 0.04),
       lm(LandmarkId.LEFT_ANKLE, leftAnkleX, leftAnkleY, -0.05),
       lm(LandmarkId.RIGHT_ANKLE, rightAnkleX, rightAnkleY, 0.05),
       lm(LandmarkId.LEFT_HEEL, leftAnkleX + 0.02, 0.90, -0.05),

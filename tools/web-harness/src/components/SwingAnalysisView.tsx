@@ -377,24 +377,54 @@ export default function SwingAnalysisView({
         ctx.fillText(isEarlyExt ? '⚠️ TUSH LOST' : 'TUSH LINE', tushX, height * 0.35 - 6);
         ctx.textAlign = 'start';
 
-        // 2. SHAFT PLANE LINE: From address ball (0.34, 0.905) through address hands / belt
+        // 2. PGA DUAL SWING PLANES: The Slot (Shaft Plane & Shoulder Plane)
         const ballX = 0.34 * width;
         const ballY = 0.905 * height;
-        const topPlaneX = 0.58 * width;
-        const topPlaneY = 0.16 * height;
 
-        ctx.strokeStyle = 'rgba(234, 179, 8, 0.4)';
+        // Lower Plane: SHAFT PLANE (from ball through address hands and beltline)
+        const shaftPlaneTopX = 0.62 * width;
+        const shaftPlaneTopY = 0.22 * height;
+
+        // Upper Plane: SHOULDER PLANE (from ball through address shoulders)
+        const shoulderPlaneTopX = 0.52 * width;
+        const shoulderPlaneTopY = 0.12 * height;
+
+        // Draw "The Slot" delivery corridor
+        ctx.fillStyle = 'rgba(234, 179, 8, 0.05)';
+        ctx.beginPath();
+        ctx.moveTo(ballX, ballY);
+        ctx.lineTo(shoulderPlaneTopX, shoulderPlaneTopY);
+        ctx.lineTo(shaftPlaneTopX, shaftPlaneTopY);
+        ctx.closePath();
+        ctx.fill();
+
+        // Draw Shaft Plane Line (Amber)
+        ctx.strokeStyle = 'rgba(234, 179, 8, 0.45)';
         ctx.lineWidth = 1.5;
         ctx.setLineDash([4, 4]);
         ctx.beginPath();
         ctx.moveTo(ballX, ballY);
-        ctx.lineTo(topPlaneX, topPlaneY);
+        ctx.lineTo(shaftPlaneTopX, shaftPlaneTopY);
+        ctx.stroke();
+
+        // Draw Shoulder Plane Line (Sky Blue)
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(ballX, ballY);
+        ctx.lineTo(shoulderPlaneTopX, shoulderPlaneTopY);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        ctx.fillStyle = 'rgba(234, 179, 8, 0.7)';
-        ctx.font = '9px monospace';
-        ctx.fillText('SHAFT PLANE', topPlaneX - 25, topPlaneY - 4);
+        // Labels
+        ctx.fillStyle = 'rgba(234, 179, 8, 0.75)';
+        ctx.font = '8.5px monospace';
+        ctx.fillText('SHAFT PLANE', shaftPlaneTopX - 10, shaftPlaneTopY + 4);
+
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.65)';
+        ctx.font = '8.5px monospace';
+        ctx.fillText('SHOULDER PLANE', shoulderPlaneTopX - 25, shoulderPlaneTopY - 4);
       }
     }
 
@@ -553,23 +583,66 @@ export default function SwingAnalysisView({
         } else {
           // DOWN-THE-LINE Club & Ball
           if (activeIntFrame <= 40) {
+            // P1 Address: Clubhead grounded right behind ball
             clubheadX = 0.34 * width;
             clubheadY = 0.90 * height;
           } else if (activeIntFrame <= 230) {
+            // Backswing (P1 -> P4): club moves along the shoulder plane to top
             const prog = (activeIntFrame - 40) / 190;
-            clubheadX = (handGripX / width + 0.04 + 0.16 * prog) * width;
-            clubheadY = (handGripY / height - 0.22 * Math.sin(prog * Math.PI * 0.8)) * height;
+            if (prog < 0.4) {
+              const tProg = prog / 0.4;
+              clubheadX = (0.34 + tProg * 0.10) * width;
+              clubheadY = (0.90 - tProg * 0.25) * height;
+            } else {
+              const uProg = (prog - 0.4) / 0.6;
+              const uEase = 0.5 - 0.5 * Math.cos(uProg * Math.PI);
+              clubheadX = (0.44 + uEase * 0.04) * width;
+              clubheadY = (0.65 - uEase * 0.51) * height;
+            }
           } else if (activeIntFrame <= 290) {
+            // Downswing (P4 -> P7): SHALLOWING INTO THE SLOT!
             const prog = (activeIntFrame - 230) / 60;
-            clubheadX = ((handGripX / width + 0.18 * (1 - prog)) * (1 - prog) + 0.34 * prog) * width;
-            clubheadY = ((handGripY / height - 0.20 * (1 - prog)) * (1 - prog) + 0.90 * prog) * height;
+            if (prog < 0.5) {
+              // P4 -> P5: Clubhead drops and shallows BEHIND hands into The Slot!
+              const sProg = prog / 0.5;
+              clubheadX = (0.48 + sProg * 0.14) * width; // 0.62 (lagging behind hands in the slot!)
+              clubheadY = (0.14 + sProg * 0.12) * height; // 0.26 (lagging above hands in the slot!)
+            } else if (prog < 0.8) {
+              // P5 -> P6: Delivery position (shaft parallel to ground at waist height)
+              const dProg = (prog - 0.5) / 0.3;
+              clubheadX = (0.62 - dProg * 0.12) * width; // 0.50
+              clubheadY = (0.26 + dProg * 0.29) * height; // 0.55
+            } else {
+              // P6 -> P7: Rapid release down to strike the ball
+              const iProg = (prog - 0.8) / 0.2;
+              clubheadX = (0.50 - iProg * 0.16) * width; // 0.34 (impact at ball!)
+              clubheadY = (0.55 + iProg * 0.35) * height; // 0.90
+            }
           } else if (activeIntFrame <= 420) {
+            // Follow-through & Finish (P7 -> P10)
             const prog = (activeIntFrame - 290) / 130;
-            clubheadX = (handGripX / width - 0.18 * Math.sin(prog * Math.PI)) * width;
-            clubheadY = (handGripY / height - 0.20 * Math.cos(prog * Math.PI * 0.7)) * height;
+            if (prog < 0.25) {
+              // P7 -> P8: Release along target line to the left
+              const rProg = prog / 0.25;
+              clubheadX = (0.34 - rProg * 0.21) * width; // 0.13
+              clubheadY = (0.90 - rProg * 0.38) * height; // 0.52 (shaft parallel to ground!)
+            } else if (prog < 0.65) {
+              // P8 -> P9: Re-hinge up over lead shoulder
+              const hProg = (prog - 0.25) / 0.40;
+              const hEase = 0.5 - 0.5 * Math.cos(hProg * Math.PI);
+              clubheadX = (0.13 + hEase * 0.15) * width; // 0.28
+              clubheadY = (0.52 - hEase * 0.32) * height; // 0.20
+            } else {
+              // P9 -> P10: Wrap around neck into full balanced finish
+              const fProg = (prog - 0.65) / 0.35;
+              const fEase = 0.5 - 0.5 * Math.cos(fProg * Math.PI);
+              clubheadX = (0.28 + fEase * 0.30) * width; // 0.58
+              clubheadY = (0.20 + fEase * 0.05) * height; // 0.25
+            }
           } else {
-            clubheadX = (handGripX / width + 0.14) * width;
-            clubheadY = (handGripY / height + 0.08) * height;
+            // Hold full finish
+            clubheadX = 0.58 * width;
+            clubheadY = 0.25 * height;
           }
 
           // Ball in DTL
@@ -634,7 +707,8 @@ export default function SwingAnalysisView({
         if (currentKinematics) {
           const midSpineX = (midHipX + midShoulderX) / 2 + 10;
           const midSpineY = (midHipY + midShoulderY) / 2;
-          const isLoss = Math.abs(currentKinematics.spineAngleDelta) > 8 && activeIntFrame >= 240;
+          // Posture loss / Early Extension is evaluated during downswing into impact (240 to 305)
+          const isLoss = Math.abs(currentKinematics.spineAngleDelta) > 8 && activeIntFrame >= 240 && activeIntFrame <= 305;
 
           ctx.fillStyle = isLoss ? 'rgba(239, 68, 68, 0.95)' : 'rgba(15, 23, 42, 0.85)';
           ctx.strokeStyle = isLoss ? '#ef4444' : '#10b981';
@@ -658,16 +732,30 @@ export default function SwingAnalysisView({
         ctx.strokeStyle = '#eab308';
         ctx.lineWidth = 2.5;
         ctx.beginPath();
-        ctx.moveTo(ls.x * width, ls.y * height);
-        ctx.lineTo(rs.x * width, rs.y * height);
+        if (viewAngle === 'FACE_ON') {
+          ctx.moveTo(ls.x * width, ls.y * height);
+          ctx.lineTo(rs.x * width, rs.y * height);
+        } else {
+          // In DTL: Draw transverse shoulder tilt line through mid-shoulder
+          const sTilt = Math.sin((currentKinematics?.shoulderTurn ?? 0) * Math.PI / 180);
+          ctx.moveTo(midShoulderX - 18, midShoulderY + sTilt * 12);
+          ctx.lineTo(midShoulderX + 18, midShoulderY - sTilt * 12);
+        }
         ctx.stroke();
 
         // PELVIS LINE (Cyan)
         ctx.strokeStyle = '#06b6d4';
         ctx.lineWidth = 2.5;
         ctx.beginPath();
-        ctx.moveTo(lh.x * width, lh.y * height);
-        ctx.lineTo(rh.x * width, rh.y * height);
+        if (viewAngle === 'FACE_ON') {
+          ctx.moveTo(lh.x * width, lh.y * height);
+          ctx.lineTo(rh.x * width, rh.y * height);
+        } else {
+          // In DTL: Draw pelvis tilt line through mid-hip
+          const pTilt = Math.sin((currentKinematics?.pelvisTurn ?? 0) * Math.PI / 180);
+          ctx.moveTo(midHipX - 16, midHipY + pTilt * 10);
+          ctx.lineTo(midHipX + 16, midHipY - pTilt * 10);
+        }
         ctx.stroke();
       }
     }
