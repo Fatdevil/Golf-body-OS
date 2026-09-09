@@ -112,4 +112,11 @@ describe('GolfSwingPhaseEngine', () => {
     expect(eeFault).toBeDefined();
     expect(eeFault?.phaseDetected).toBe('P7_IMPACT');
   });
+
+  it('should detect phases on SWAY in Face-On view', () => {
+    const foEngine = new GolfSwingPhaseEngine({ viewAngle: 'FACE_ON' });
+    const swayFrames = generate240FpsSwingSequence(480, 'SWAY', 'FACE_ON');
+    const result = foEngine.analyzeSequence(swayFrames);
+    expect(result.phases.P4_TOP.frameIndex).toBeLessThan(result.phases.P7_IMPACT.frameIndex);
+  });
 });

@@ -21,11 +21,13 @@ import {
   VolumeX,
   Target,
   Award,
-  Check
+  Check,
+  Download
 } from 'lucide-react';
+import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
 import { PoseFrame } from '../../../../src/core/types/pose-frame';
 import { mirrorPoseFrame } from '../../../../src/core/coordinates/pose-mirror';
-import { LandmarkId } from '../../../../src/core/types/landmark';
+import { Landmark, LandmarkId } from '../../../../src/core/types/landmark';
 import {
   CameraViewAngle,
   GolfSwingAnalysisResult,
@@ -98,6 +100,11 @@ export default function SwingAnalysisView({
   const [audioVoiceEnabled, setAudioVoiceEnabled] = useState<boolean>(true);
   const [dwellHoldProgress, setDwellHoldProgress] = useState<number>(0); // 0 to 100%
   const [completedCheckpoints, setCompletedCheckpoints] = useState<Set<GhostCheckpointId>>(new Set());
+
+  // Video Extraction State
+  const [isExtractingVideo, setIsExtractingVideo] = useState<boolean>(false);
+  const [extractionProgress, setExtractionProgress] = useState<number>(0);
+  const [extractedFileName, setExtractedFileName] = useState<string | null>(null);
 
   const audioCoachRef = useRef<AudioCoachService | null>(null);
   if (!audioCoachRef.current) {
@@ -180,7 +187,8 @@ export default function SwingAnalysisView({
     if (newAngle === viewAngle) return;
     setIsPlaying(false);
     setViewAngle(newAngle);
-    const seq = generate240FpsSwingSequence(480, sampleType, newAngle);
+    const baseSeq = generate240FpsSwingSequence(480, sampleType, newAngle);
+    const seq = isRightHanded ? baseSeq : baseSeq.map(mirrorPoseFrame);
     setFrames(seq);
     setCurrentFrameIndex(0);
   };
@@ -189,7 +197,19 @@ export default function SwingAnalysisView({
   const handleLoadSample = (type: SampleSwingType) => {
     setIsPlaying(false);
     setSampleType(type);
-    const seq = generate240FpsSwingSequence(480, type, viewAngle);
+    const baseSeq = generate240FpsSwingSequence(480, type, viewAngle);
+    const seq = isRightHanded ? baseSeq : baseSeq.map(mirrorPoseFrame);
+    setFrames(seq);
+    setCurrentFrameIndex(0);
+  };
+
+  // Switch handedness and reload matching sequence
+  const handleHandednessChange = (rightHanded: boolean) => {
+    if (rightHanded === isRightHanded) return;
+    setIsPlaying(false);
+    setIsRightHanded(rightHanded);
+    const baseSeq = generate240FpsSwingSequence(480, sampleType, viewAngle);
+    const seq = rightHanded ? baseSeq : baseSeq.map(mirrorPoseFrame);
     setFrames(seq);
     setCurrentFrameIndex(0);
   };
@@ -204,17 +224,111 @@ export default function SwingAnalysisView({
     }
   };
 
-  // Custom slow-mo video upload handler
-  const handleCustomVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Export extracted Tiger Woods frames to JSON
+  const handleExportTigerJson = () => {
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(frames, null, 2));
+    const dlAnchorElem = document.createElement('a');
+    dlAnchorElem.setAttribute('href', dataStr);
+    dlAnchorElem.setAttribute('download', `tiger_2000_${viewAngle.toLowerCase()}_extracted.json`);
+    dlAnchorElem.click();
+  };
+
+  // Real MediaPipe slow-mo video upload handler
+  const handleCustomVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsPlaying(false);
-    alert(
-      isSv
-        ? `Laddade upp "${file.name}". För demo analyseras en 240 fps svingkurva baserad på filens egenskaper.`
-        : `Uploaded "${file.name}". Demo analysis initialized with 240 fps high-speed profile.`
-    );
-    handleLoadSample('OPTIMAL');
+    setIsExtractingVideo(true);
+    setExtractionProgress(0);
+    setExtractedFileName(file.name);
+
+    try {
+      const vision = await FilesetResolver.forVisionTasks(
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+      );
+      const pm = await PoseLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: '/pose_landmarker_full.task',
+          delegate: 'GPU'
+        },
+        runningMode: 'IMAGE',
+        numPoses: 1,
+        minPoseDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+
+      const video = document.createElement('video');
+      video.src = URL.createObjectURL(file);
+      video.muted = true;
+      video.playsInline = true;
+      await new Promise<void>((resolve, reject) => {
+        video.onloadedmetadata = () => resolve();
+        video.onerror = (err) => reject(err);
+      });
+
+      const duration = video.duration || 2.0;
+      const totalSteps = Math.min(240, Math.max(30, Math.round(duration * 60)));
+      const stepDuration = duration / totalSteps;
+
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width = video.videoWidth || 640;
+      offCanvas.height = video.videoHeight || 480;
+      const offCtx = offCanvas.getContext('2d');
+
+      const extracted: PoseFrame[] = [];
+
+      for (let step = 0; step < totalSteps; step++) {
+        const time = step * stepDuration;
+        video.currentTime = time;
+        await new Promise<void>((res) => {
+          video.onseeked = () => res();
+        });
+
+        if (offCtx) {
+          offCtx.drawImage(video, 0, 0, offCanvas.width, offCanvas.height);
+          const result = pm.detect(offCanvas);
+          if (result.landmarks && result.landmarks[0] && result.landmarks[0].length === 33) {
+            const raw = result.landmarks[0];
+            const landmarks: Landmark[] = raw.map((lm, idx) => ({
+              id: idx as LandmarkId,
+              x: lm.x,
+              y: lm.y,
+              z: lm.z ?? 0,
+              visibility: lm.visibility ?? 0.95
+            }));
+            const lw = landmarks[LandmarkId.LEFT_WRIST];
+            const rw = landmarks[LandmarkId.RIGHT_WRIST];
+            const hx = (lw && rw) ? (lw.x + rw.x) / 2 : 0.5;
+            const hy = (lw && rw) ? (lw.y + rw.y) / 2 : 0.5;
+            const club = generateTigerClubState(Math.round((step / totalSteps) * 480), hx, hy, 0, viewAngle);
+
+            extracted.push({
+              frameId: step,
+              timestampMs: time * 1000,
+              width: offCanvas.width,
+              height: offCanvas.height,
+              landmarks,
+              club,
+              model: 'MEDIAPIPE_POSE_VIDEO_EXTRACT',
+              modelVersion: '0.10.14'
+            });
+          }
+        }
+        setExtractionProgress(Math.round(((step + 1) / totalSteps) * 100));
+      }
+
+      if (extracted.length >= 15) {
+        setFrames(extracted);
+        setCurrentFrameIndex(0);
+      } else {
+        alert(isSv ? 'Kunde inte detektera tillräckligt många poser i videon.' : 'Could not detect enough poses in video.');
+      }
+    } catch (err) {
+      console.error('Video extraction failed', err);
+      alert(isSv ? 'Fel vid videoextraktion: ' + String(err) : 'Video extraction failed: ' + String(err));
+    } finally {
+      setIsExtractingVideo(false);
+    }
   };
 
   // Animation playback loop
@@ -380,8 +494,8 @@ export default function SwingAnalysisView({
     const height = canvas.height;
 
     // Unified Mirroring for Display:
-    // If right-handed golfer in non-mirrored view, or left-handed in mirrored view, flip display frame.
-    const shouldFlipDisplay = isRightHanded !== isMirroredView;
+    // Only mirror if isMirroredView is enabled (selfie mirror mode)
+    const shouldFlipDisplay = isMirroredView;
     const displayFrame = shouldFlipDisplay ? mirrorPoseFrame(currentFrame) : currentFrame;
     const displayAddrFrame = frames[0] ? (shouldFlipDisplay ? mirrorPoseFrame(frames[0]) : frames[0]) : null;
 
@@ -424,62 +538,124 @@ export default function SwingAnalysisView({
       ctx.stroke();
     }
 
-    // 2a. Clubhead trajectory trace (Wide sweeping neon cyan arc)
+    // 2a. Clubhead trajectory trace (Backswing Plane, Impact Delivery Arc & Active Comet Tail)
     if (showClubTrajectory && frames.length > 0) {
       ctx.save();
-      ctx.strokeStyle = '#00f0ff';
-      ctx.lineWidth = 2.5;
-      ctx.shadowColor = 'rgba(0, 240, 255, 0.6)';
-      ctx.shadowBlur = 6;
+
+      const pAddressIdx = analysis?.phases.P1_ADDRESS?.frameIndex ?? 40;
+      const pTopIdx = analysis?.phases.P4_TOP?.frameIndex ?? 212;
+      const pReleaseIdx = analysis?.phases.P8_RELEASE?.frameIndex ?? 320;
+
+      // 1. Backswing Arc (Address to Top): Subtle dashed ice-blue
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.40)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
       ctx.beginPath();
-      let started = false;
-      for (let i = 0; i < frames.length; i += 2) {
+      let startedBack = false;
+      for (let i = pAddressIdx; i <= pTopIdx && i < frames.length; i += 2) {
         const rawF = frames[i];
+        if (!rawF) continue;
         const f = shouldFlipDisplay ? mirrorPoseFrame(rawF) : rawF;
-        let clubHead = f.club?.clubHead;
-        if (!clubHead) {
-          const lw = getLandmark(f, LandmarkId.LEFT_WRIST);
-          const rw = getLandmark(f, LandmarkId.RIGHT_WRIST);
-          if (lw && rw) {
-            const hx = (lw.x + rw.x) / 2;
-            const hy = (lw.y + rw.y) / 2;
-            const clubState = generateTigerClubState(i, hx, hy, 0, viewAngle);
-            clubHead = clubState.clubHead;
-          }
-        }
+        const clubHead = f.club?.clubHead;
         if (clubHead) {
           const cx = clubHead.x * width;
           const cy = clubHead.y * height;
-          if (!started) {
+          if (!startedBack) {
             ctx.moveTo(cx, cy);
-            started = true;
+            startedBack = true;
           } else {
             ctx.lineTo(cx, cy);
           }
         }
       }
       ctx.stroke();
+      ctx.setLineDash([]);
+
+      // 2. Downswing Delivery Arc (Top to Release): Luminous neon cyan with glow
+      ctx.strokeStyle = '#00f0ff';
+      ctx.lineWidth = 2.8;
+      ctx.shadowColor = 'rgba(0, 240, 255, 0.85)';
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      let startedDown = false;
+      for (let i = pTopIdx; i <= pReleaseIdx && i < frames.length; i += 2) {
+        const rawF = frames[i];
+        if (!rawF) continue;
+        const f = shouldFlipDisplay ? mirrorPoseFrame(rawF) : rawF;
+        const clubHead = f.club?.clubHead;
+        if (clubHead) {
+          const cx = clubHead.x * width;
+          const cy = clubHead.y * height;
+          if (!startedDown) {
+            ctx.moveTo(cx, cy);
+            startedDown = true;
+          } else {
+            ctx.lineTo(cx, cy);
+          }
+        }
+      }
+      ctx.stroke();
+
+      // 3. Dynamic Toptracer Comet Tail (Last 30 frames trailing current frame)
+      const trailStart = Math.max(0, activeIntFrame - 30);
+      if (activeIntFrame > trailStart) {
+        ctx.lineWidth = 3.5;
+        ctx.shadowBlur = 10;
+        for (let i = trailStart; i < activeIntFrame; i += 2) {
+          const rawF1 = frames[i];
+          const rawF2 = frames[Math.min(frames.length - 1, i + 2)];
+          if (rawF1?.club && rawF2?.club) {
+            const f1 = shouldFlipDisplay ? mirrorPoseFrame(rawF1) : rawF1;
+            const f2 = shouldFlipDisplay ? mirrorPoseFrame(rawF2) : rawF2;
+            const progress = (i - trailStart) / (activeIntFrame - trailStart);
+            ctx.strokeStyle = `rgba(0, 240, 255, ${progress.toFixed(2)})`;
+            ctx.beginPath();
+            ctx.moveTo(f1.club!.clubHead.x * width, f1.club!.clubHead.y * height);
+            ctx.lineTo(f2.club!.clubHead.x * width, f2.club!.clubHead.y * height);
+            ctx.stroke();
+          }
+        }
+
+        // Glowing ping at active clubhead position
+        const activeFrameData = frames[activeIntFrame];
+        if (activeFrameData?.club) {
+          const fAct = shouldFlipDisplay ? mirrorPoseFrame(activeFrameData) : activeFrameData;
+          ctx.fillStyle = '#ffffff';
+          ctx.shadowColor = '#00f0ff';
+          ctx.shadowBlur = 12;
+          ctx.beginPath();
+          ctx.arc(fAct.club!.clubHead.x * width, fAct.club!.clubHead.y * height, 5, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+      }
+
       ctx.restore();
     }
 
     // 2b. Hand trajectory trace (Golden/amber shallowing drop-loop)
     if (showHandTrajectory && frames.length > 0) {
       ctx.save();
-      ctx.strokeStyle = 'rgba(245, 158, 11, 0.75)';
-      ctx.lineWidth = 2;
+      const pTopIdx = analysis?.phases.P4_TOP?.frameIndex ?? 212;
+      const pImpactIdx = analysis?.phases.P7_IMPACT?.frameIndex ?? 290;
+
+      // Shallowing Drop-Loop (Top to Impact)
+      ctx.strokeStyle = 'rgba(245, 158, 11, 0.85)';
+      ctx.lineWidth = 2.5;
       ctx.setLineDash([4, 3]);
       ctx.beginPath();
-      let started = false;
-      for (let i = 0; i < frames.length; i += 4) {
-        const f = shouldFlipDisplay ? mirrorPoseFrame(frames[i]) : frames[i];
+      let startedHands = false;
+      for (let i = pTopIdx; i <= pImpactIdx && i < frames.length; i += 2) {
+        const rawF = frames[i];
+        if (!rawF) continue;
+        const f = shouldFlipDisplay ? mirrorPoseFrame(rawF) : rawF;
         const lw = getLandmark(f, LandmarkId.LEFT_WRIST);
         const rw = getLandmark(f, LandmarkId.RIGHT_WRIST);
         if (lw && rw) {
           const hx = ((lw.x + rw.x) / 2) * width;
           const hy = ((lw.y + rw.y) / 2) * height;
-          if (!started) {
+          if (!startedHands) {
             ctx.moveTo(hx, hy);
-            started = true;
+            startedHands = true;
           } else {
             ctx.lineTo(hx, hy);
           }
@@ -632,7 +808,12 @@ export default function SwingAnalysisView({
     if (showGhost) {
       const ghostFrame = trainerMode
         ? getProCheckpointPoseFrame(activeCheckpointId, viewAngle, isRightHanded, isMirroredView)
-        : getProCheckpointPoseFrame((activePhase as any) || 'P1_ADDRESS', viewAngle, isRightHanded, isMirroredView);
+        : (() => {
+            const tigerSeq = generate240FpsSwingSequence(480, 'OPTIMAL', viewAngle);
+            const refIdx = Math.min(tigerSeq.length - 1, Math.max(0, activeIntFrame));
+            const rawRef = tigerSeq[refIdx];
+            return (!isRightHanded !== isMirroredView) ? mirrorPoseFrame(rawRef) : rawRef;
+          })();
 
       if (ghostFrame && ghostFrame.landmarks) {
         const isMatched = ghostMatchResult?.isLocked;
@@ -1093,12 +1274,25 @@ export default function SwingAnalysisView({
             </button>
           </div>
 
-          {/* Upload Slow-Mo Video */}
-          <label className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 px-3 py-1.5 rounded-xl font-medium text-xs border border-slate-700 transition cursor-pointer shadow-sm">
-            <Upload size={14} />
-            <span>{isSv ? 'Ladda upp 240 fps Video' : 'Upload Video'}</span>
-            <input type="file" accept="video/*" onChange={handleCustomVideoUpload} className="hidden" />
-          </label>
+          {/* Upload Slow-Mo Video & Export */}
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 px-3 py-1.5 rounded-xl font-medium text-xs border border-slate-700 transition cursor-pointer shadow-sm">
+              <Upload size={14} />
+              <span>{isSv ? 'Ladda upp 240 fps Video' : 'Upload Video'}</span>
+              <input type="file" accept="video/*" onChange={handleCustomVideoUpload} className="hidden" />
+            </label>
+
+            {extractedFileName && (
+              <button
+                onClick={handleExportTigerJson}
+                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white px-3 py-1.5 rounded-xl font-bold text-xs border border-emerald-500 transition shadow-sm"
+                title={isSv ? 'Ladda ner extraherade Tiger Woods punkter som JSON' : 'Download extracted Tiger Woods landmarks as JSON'}
+              >
+                <Download size={14} />
+                <span>{isSv ? 'Exportera Tiger JSON' : 'Export Tiger JSON'}</span>
+              </button>
+            )}
+          </div>
 
           {/* Camera View Angle Selector */}
           <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
@@ -1123,7 +1317,7 @@ export default function SwingAnalysisView({
           {/* Player Handedness Selector */}
           <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
             <button
-              onClick={() => setIsRightHanded(true)}
+              onClick={() => handleHandednessChange(true)}
               className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
                 isRightHanded ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
               }`}
@@ -1133,7 +1327,7 @@ export default function SwingAnalysisView({
               <span>{isSv ? 'Höger' : 'Right'}</span>
             </button>
             <button
-              onClick={() => setIsRightHanded(false)}
+              onClick={() => handleHandednessChange(false)}
               className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
                 !isRightHanded ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
               }`}
@@ -1169,6 +1363,34 @@ export default function SwingAnalysisView({
           </div>
         </div>
       </div>
+
+      {/* 1.1 Video Extraction Progress Banner */}
+      {isExtractingVideo && (
+        <div className="bg-gradient-to-r from-blue-900/90 to-indigo-900/90 border border-blue-500 p-4 rounded-2xl flex items-center justify-between shadow-xl">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-500 flex items-center justify-center text-lg animate-spin">
+              ⚙️
+            </div>
+            <div>
+              <div className="font-bold text-sm text-white">
+                {isSv ? `Analyserar Tiger Woods video: ${extractedFileName}` : `Analyzing Tiger Woods video: ${extractedFileName}`}
+              </div>
+              <div className="text-xs text-blue-200">
+                {isSv ? 'MediaPipe Pose extraherar 33 skelettpunkter i realtid...' : 'MediaPipe Pose extracting 33 skeleton landmarks in real-time...'}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="font-black text-xl text-cyan-400">{extractionProgress}%</span>
+            <div className="w-36 bg-slate-950 rounded-full h-3 overflow-hidden border border-blue-700">
+              <div
+                className="bg-gradient-to-r from-cyan-400 to-emerald-400 h-full transition-all duration-150"
+                style={{ width: `${extractionProgress}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 1b. Dedicated Tiger Ghost Checkpoint Trainer Panel (Active when trainerMode is ON) */}
       {trainerMode && (
