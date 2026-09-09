@@ -16,6 +16,7 @@ interface CameraGuideOverlayProps {
   onReplayBriefing?: () => void;
   onSkipBriefing?: () => void;
   coachingMode?: CoachingMode;
+  isFullscreen?: boolean;
 }
 
 export default function CameraGuideOverlay({
@@ -27,7 +28,8 @@ export default function CameraGuideOverlay({
   isBriefingActive = false,
   onReplayBriefing,
   onSkipBriefing,
-  coachingMode = 'GUIDED'
+  coachingMode = 'GUIDED',
+  isFullscreen = false
 }: CameraGuideOverlayProps) {
   if (appState === 'ACTIVE') {
     return null; // completely hidden during active test
@@ -109,8 +111,11 @@ export default function CameraGuideOverlay({
         )}
       </svg>
 
-      {/* Mobile Top Pill (< sm screens) */}
-      <div className="sm:hidden absolute top-3 left-3 right-14 z-20 pointer-events-auto flex items-center justify-between bg-black/85 backdrop-blur-md px-3.5 py-2 rounded-full border border-gray-700/80 shadow-lg text-xs">
+      {/* Top Pill (< sm screens or when in Fullscreen) */}
+      <div 
+        className={`${!isFullscreen ? 'sm:hidden' : ''} absolute top-3 left-3 right-28 z-20 pointer-events-auto flex items-center justify-between bg-black/85 backdrop-blur-md px-3.5 py-2 rounded-full border border-gray-700/80 shadow-lg text-xs`}
+        style={{ top: isFullscreen ? 'max(env(safe-area-inset-top), 12px)' : undefined }}
+      >
         <div className="flex items-center gap-1.5 font-bold text-white truncate">
           <Compass size={15} className="text-emerald-400 shrink-0" />
           <span className="truncate">
@@ -130,19 +135,19 @@ export default function CameraGuideOverlay({
         )}
       </div>
 
-      {/* Desktop Persistent Step-by-Step Instructions Card (sm and above) */}
-      <div className="hidden sm:block absolute top-4 left-4 max-w-sm bg-black/85 backdrop-blur-md p-4 rounded-xl text-white border border-gray-700 shadow-2xl pointer-events-auto">
-        <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-gray-700/60">
-          <h3 className="font-bold text-xs tracking-wider uppercase flex items-center gap-1.5 text-blue-300">
-            <Compass size={14} className="text-emerald-400" />
-            {isFront 
-              ? (language === 'sv-SE' ? 'BRÖSTRYGGSROTATION (TEST #2)' : 'THORACIC ROTATION (TEST #2)') 
-              : (language === 'sv-SE' ? 'HÖFTFÄLLNING (TEST #1)' : 'HIP HINGE (TEST #1)')}
-          </h3>
-          <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800">
-            {coachingMode === 'CORRECTIVE' ? (language === 'sv-SE' ? 'Korrigerande' : 'Corrective') : (language === 'sv-SE' ? 'Guidad' : 'Guided')}
-          </span>
-        </div>
+      {/* Desktop Persistent Step-by-Step Instructions Card (sm and above, hidden in fullscreen) */}
+      <div className={`${isFullscreen ? 'hidden' : 'hidden sm:block'} absolute top-4 left-4 max-w-sm bg-black/85 backdrop-blur-md p-4 rounded-xl text-white border border-gray-700 shadow-2xl pointer-events-auto`}>
+          <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-gray-700/60">
+            <h3 className="font-bold text-xs tracking-wider uppercase flex items-center gap-1.5 text-blue-300">
+              <Compass size={14} className="text-emerald-400" />
+              {isFront 
+                ? (language === 'sv-SE' ? 'BRÖSTRYGGSROTATION (TEST #2)' : 'THORACIC ROTATION (TEST #2)') 
+                : (language === 'sv-SE' ? 'HÖFTFÄLLNING (TEST #1)' : 'HIP HINGE (TEST #1)')}
+            </h3>
+            <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800">
+              {coachingMode === 'CORRECTIVE' ? (language === 'sv-SE' ? 'Korrigerande' : 'Corrective') : (language === 'sv-SE' ? 'Guidad' : 'Guided')}
+            </span>
+          </div>
 
         {/* Numbered Step-by-Step Breakdown */}
         <div className="space-y-1.5 text-xs text-gray-200">
@@ -265,7 +270,7 @@ export default function CameraGuideOverlay({
       </div>
 
       {/* Primary Actionable Instruction Banner at Bottom */}
-      <div className="absolute bottom-5 sm:bottom-12 left-2 right-2 flex justify-center pointer-events-none z-20">
+      <div className={`absolute ${isFullscreen ? 'bottom-20 sm:bottom-24' : 'bottom-5 sm:bottom-12'} left-2 right-2 flex justify-center pointer-events-none z-20`}>
         {isBriefingActive ? (
           <div className="bg-purple-950/95 border-[3px] border-purple-400 px-6 py-3.5 sm:px-8 sm:py-4 rounded-2xl flex flex-col items-center shadow-2xl backdrop-blur-md max-w-[95%] sm:max-w-sm text-center">
             <span className="text-lg sm:text-2xl font-extrabold uppercase tracking-wide text-purple-200 flex items-center gap-2">

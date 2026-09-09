@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
-import { Play, Upload, Camera, RefreshCw, Volume2, VolumeX, Globe, Key, Bot, Sparkles, X, Check, Compass, Target, Trophy, SwitchCamera, Smartphone, QrCode } from 'lucide-react';
+import { Play, Upload, Camera, RefreshCw, Volume2, VolumeX, Globe, Key, Bot, Sparkles, X, Check, Compass, Target, Trophy, SwitchCamera, Smartphone, QrCode, Maximize2, Minimize2 } from 'lucide-react';
 import { convertWebResultToPoseFrame } from './adapter/web-mediapipe-adapter';
 import { TemporalPipeline } from '../../../src/core/motion/temporal-pipeline';
 import { PoseFrame, PoseSequence } from '../../../src/core/types/pose-frame';
@@ -158,6 +158,7 @@ export default function App() {
   const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
   const cameraFacingRef = useRef<'user' | 'environment'>('user');
   const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
+  const [isMobileFullscreen, setIsMobileFullscreen] = useState(false);
   const [mobileTab, setMobileTab] = useState<'TEST' | 'REPORT'>('TEST');
   const [showQrModal, setShowQrModal] = useState(false);
 
@@ -803,6 +804,9 @@ export default function App() {
       setMode('WEBCAM');
       modeRef.current = 'WEBCAM';
       setMobileTab('TEST');
+      if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+        setIsMobileFullscreen(true);
+      }
       processWebcamFrame();
       if (isScreeningFlowRef.current) {
         playScreeningBriefing();
@@ -859,7 +863,33 @@ export default function App() {
     setIsSwitchingCamera(false);
   };
 
+  const toggleFullscreen = () => {
+    const next = !isMobileFullscreen;
+    setIsMobileFullscreen(next);
+    if (next) {
+      try {
+        if (typeof document !== 'undefined' && document.documentElement.requestFullscreen && !document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
+      } catch {
+        // Ignore fullscreen error
+      }
+    } else {
+      try {
+        if (typeof document !== 'undefined' && document.exitFullscreen && document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+        }
+      } catch {
+        // Ignore exit error
+      }
+    }
+  };
+
   const stopWebcam = () => {
+    setIsMobileFullscreen(false);
+    if (typeof document !== 'undefined' && document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
     cancelBriefing();
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
@@ -1292,6 +1322,18 @@ export default function App() {
             </button>
           )}
 
+          {mode === 'WEBCAM' && (
+            <button
+              onClick={toggleFullscreen}
+              type="button"
+              className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-200 px-3.5 py-2.5 rounded-xl font-medium text-xs border border-gray-700 transition"
+              title={isMobileFullscreen ? (language === 'sv-SE' ? 'Lämna helskärm' : 'Exit Fullscreen') : (language === 'sv-SE' ? 'Helskärm' : 'Fullscreen')}
+            >
+              {isMobileFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              <span>{isMobileFullscreen ? (language === 'sv-SE' ? 'Mindre vy' : 'Exit') : (language === 'sv-SE' ? 'Helskärm' : 'Fullscreen')}</span>
+            </button>
+          )}
+
           <div className="relative">
             <input type="file" accept="video/*" onChange={handleFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" ref={fileInputRef} />
             <button className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-300 px-3.5 py-2.5 rounded-xl font-medium text-xs border border-gray-700 transition">
@@ -1409,7 +1451,11 @@ export default function App() {
             )}
             <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
             {/* Video Feed */}
-            <div className={`relative w-full max-w-[640px] aspect-[3/4] sm:aspect-[4/3] min-h-[480px] sm:min-h-0 mx-auto bg-black rounded-2xl overflow-hidden shadow-2xl flex-shrink-0 border border-gray-800 ${mobileTab !== 'TEST' ? 'hidden lg:block' : 'block'}`}>
+            <div className={
+              isMobileFullscreen
+                ? "fixed inset-0 z-50 w-screen h-[100dvh] bg-black overflow-hidden flex flex-col justify-between"
+                : `relative w-full max-w-[640px] aspect-[3/4] sm:aspect-[4/3] min-h-[480px] sm:min-h-0 mx-auto bg-black rounded-2xl overflow-hidden shadow-2xl flex-shrink-0 border border-gray-800 ${mobileTab !== 'TEST' ? 'hidden lg:block' : 'block'}`
+            }>
               <video
                 ref={videoRef}
                 onEnded={handleVideoEnded}
@@ -1428,23 +1474,40 @@ export default function App() {
                 style={{ transform: mode === 'WEBCAM' && cameraFacing === 'user' ? 'scaleX(-1)' : 'none' }}
               />
 
-              {/* Floating Camera Flip Button */}
+              {/* Floating Camera Controls (Flip Camera & Fullscreen Toggle) */}
               {mode === 'WEBCAM' && (
-                <button
-                  onClick={toggleCameraFacing}
-                  disabled={isSwitchingCamera}
-                  type="button"
-                  className="absolute top-3 right-3 z-30 bg-black/70 hover:bg-black/90 active:scale-95 text-white p-3 rounded-full border border-white/30 backdrop-blur-md shadow-xl transition flex items-center gap-1.5 text-xs font-bold pointer-events-auto min-h-[44px] min-w-[44px] justify-center"
-                  title={language === 'sv-SE' ? 'Växla kamera (Fram/Bak)' : 'Flip Camera (Front/Rear)'}
+                <div 
+                  className="absolute top-3 right-3 z-30 flex items-center gap-2 pointer-events-auto"
+                  style={{ top: isMobileFullscreen ? 'max(env(safe-area-inset-top), 12px)' : undefined }}
                 >
-                  <SwitchCamera size={20} className={`text-white ${isSwitchingCamera ? 'animate-spin' : ''}`} />
-                  <span className="hidden sm:inline">{cameraFacing === 'user' ? (language === 'sv-SE' ? 'Selfie' : 'Front') : (language === 'sv-SE' ? 'Bakre' : 'Rear')}</span>
-                </button>
+                  <button
+                    onClick={toggleCameraFacing}
+                    disabled={isSwitchingCamera}
+                    type="button"
+                    className="bg-black/70 hover:bg-black/90 active:scale-95 text-white p-2.5 sm:p-3 rounded-full border border-white/30 backdrop-blur-md shadow-xl transition flex items-center gap-1.5 text-xs font-bold min-h-[44px] min-w-[44px] justify-center"
+                    title={language === 'sv-SE' ? 'Växla kamera (Fram/Bak)' : 'Flip Camera (Front/Rear)'}
+                  >
+                    <SwitchCamera size={20} className={`text-white ${isSwitchingCamera ? 'animate-spin' : ''}`} />
+                    <span className="hidden sm:inline">{cameraFacing === 'user' ? (language === 'sv-SE' ? 'Selfie' : 'Front') : (language === 'sv-SE' ? 'Bakre' : 'Rear')}</span>
+                  </button>
+
+                  <button
+                    onClick={toggleFullscreen}
+                    type="button"
+                    className="bg-black/70 hover:bg-black/90 active:scale-95 text-white p-2.5 sm:p-3 rounded-full border border-white/30 backdrop-blur-md shadow-xl transition flex items-center justify-center min-h-[44px] min-w-[44px]"
+                    title={isMobileFullscreen ? (language === 'sv-SE' ? 'Mindre vy' : 'Exit Fullscreen') : (language === 'sv-SE' ? 'Helskärm' : 'Fullscreen')}
+                  >
+                    {isMobileFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+                  </button>
+                </div>
               )}
               
               {/* Live Audio Coach Subtitle Banner */}
               {activeSubtitle && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 max-w-[90%] bg-black/90 backdrop-blur-md border-2 border-blue-400 text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2.5 text-sm sm:text-base font-bold animate-pulse pointer-events-none text-center">
+                <div 
+                  className="absolute top-4 left-1/2 -translate-x-1/2 z-20 max-w-[90%] bg-black/90 backdrop-blur-md border-2 border-blue-400 text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2.5 text-sm sm:text-base font-bold animate-pulse pointer-events-none text-center"
+                  style={{ top: isMobileFullscreen ? 'max(env(safe-area-inset-top), 60px)' : undefined }}
+                >
                   <Volume2 size={20} className="text-blue-400 flex-shrink-0" />
                   <span className="truncate">"{activeSubtitle}"</span>
                 </div>
@@ -1461,13 +1524,14 @@ export default function App() {
                   onReplayBriefing={() => playGuidedBriefing(activeProtocol)}
                   onSkipBriefing={cancelBriefing}
                   coachingMode={coachingMode}
+                  isFullscreen={isMobileFullscreen}
                 />
               )}
               
               {mode === 'WEBCAM' && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
                   {appTestState === 'SETUP' && readinessResult?.state === 'READY' && !isBriefingActive && (
-                    <div className="absolute bottom-4 pointer-events-auto">
+                    <div className={`absolute ${isMobileFullscreen ? 'bottom-20' : 'bottom-4'} pointer-events-auto`}>
                       <button onClick={handleStartTest} className="bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-8 rounded-full shadow-2xl text-lg animate-pulse flex items-center gap-3 border-2 border-white/20">
                         <span className="w-3 h-3 rounded-full bg-white animate-ping"></span>
                         {language === 'sv-SE' ? 'STARTA TEST (Startar automatiskt...)' : 'START TEST (Auto-starting...)'}
@@ -1485,7 +1549,7 @@ export default function App() {
                     </div>
                   )}
                   {appTestState === 'ACTIVE' && (
-                    <div className="absolute bottom-4 flex flex-col items-center gap-1 pointer-events-auto">
+                    <div className={`absolute ${isMobileFullscreen ? 'bottom-20' : 'bottom-4'} flex flex-col items-center gap-1 pointer-events-auto`}>
                       <div className="bg-red-600/95 text-white font-black py-3 px-6 sm:px-8 rounded-2xl shadow-2xl animate-pulse flex items-center gap-3 border-2 border-red-300 text-base sm:text-xl uppercase tracking-wider backdrop-blur-md">
                         <span className="w-3.5 h-3.5 rounded-full bg-white animate-ping"></span>
                         {activeProtocol === 'THORACIC_ROTATION_V1'
@@ -1499,6 +1563,22 @@ export default function App() {
                       </span>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Floating Bottom Bar (Stop Capture & Analyze in Fullscreen Mode) */}
+              {isMobileFullscreen && mode === 'WEBCAM' && (
+                <div 
+                  className="absolute bottom-0 left-0 right-0 z-30 flex justify-center pb-4 sm:pb-6 pointer-events-none"
+                  style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 16px)' }}
+                >
+                  <button
+                    onClick={stopWebcam}
+                    className="pointer-events-auto flex items-center gap-2 bg-red-600 hover:bg-red-700 active:scale-95 text-white px-6 py-3 rounded-full font-extrabold text-sm shadow-2xl shadow-red-900/60 border-2 border-red-400 backdrop-blur-md transition"
+                  >
+                    <span>⏹</span>
+                    <span>{language === 'sv-SE' ? 'Avsluta & Analysera' : 'Stop Capture & Analyze'}</span>
+                  </button>
                 </div>
               )}
             </div>
