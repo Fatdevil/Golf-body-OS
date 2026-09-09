@@ -369,6 +369,116 @@ export default function SwingAnalysisView({
           ctx.stroke();
         }
       }
+
+      // 4b. Draw Neck & Stylized Athletic Golfer Head
+      const ls = getLandmark(currentFrame, LandmarkId.LEFT_SHOULDER);
+      const rs = getLandmark(currentFrame, LandmarkId.RIGHT_SHOULDER);
+      const nose = getLandmark(currentFrame, LandmarkId.NOSE);
+      if (ls && rs && nose) {
+        const midShoulderX = ((ls.x + rs.x) / 2) * width;
+        const midShoulderY = ((ls.y + rs.y) / 2) * height;
+        const hx = nose.x * width;
+        const hy = nose.y * height;
+
+        // Neck line
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(midShoulderX, midShoulderY);
+        ctx.lineTo(hx, hy + 8);
+        ctx.stroke();
+
+        // Athletic Golfer Head & Cap
+        ctx.fillStyle = '#0f172a';
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(hx, hy, 13, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+
+        // Cap Visor line
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(hx - 10, hy - 4);
+        ctx.lineTo(hx + 10, hy - 4);
+        ctx.stroke();
+      }
+
+      // 4c. Draw Golf Club & Ball
+      const lw = getLandmark(currentFrame, LandmarkId.LEFT_WRIST);
+      const rw = getLandmark(currentFrame, LandmarkId.RIGHT_WRIST);
+      if (lw && rw) {
+        const handGripX = ((lw.x + rw.x) / 2) * width;
+        const handGripY = ((lw.y + rw.y) / 2) * height;
+
+        let clubheadX = 0.50 * width;
+        let clubheadY = 0.90 * height;
+
+        if (activeIntFrame <= 40) {
+          // P1 Address: Clubhead grounded right behind ball
+          clubheadX = 0.50 * width;
+          clubheadY = 0.90 * height;
+        } else if (activeIntFrame <= 230) {
+          // Backswing: shaft points from hands in backswing direction
+          const prog = (activeIntFrame - 40) / 190;
+          clubheadX = (handGripX / width + 0.19 * Math.cos((prog * 180 - 40) * Math.PI / 180)) * width;
+          clubheadY = (handGripY / height - 0.22 * Math.sin((prog * 180 - 40) * Math.PI / 180)) * height;
+        } else if (activeIntFrame <= 290) {
+          // Downswing: accelerating to ball
+          const prog = (activeIntFrame - 230) / 60;
+          clubheadX = ((handGripX / width + 0.16 * (1 - prog)) * (1 - prog) + 0.49 * prog) * width;
+          clubheadY = ((handGripY / height - 0.16 * (1 - prog)) * (1 - prog) + 0.90 * prog) * height;
+        } else if (activeIntFrame <= 420) {
+          // Follow-through: swinging around to finish
+          const prog = (activeIntFrame - 290) / 130;
+          clubheadX = (handGripX / width - 0.22 * Math.sin(prog * Math.PI)) * width;
+          clubheadY = (handGripY / height - 0.20 * Math.cos(prog * Math.PI * 0.7)) * height;
+        } else {
+          // Hold finish
+          clubheadX = (handGripX / width + 0.18) * width;
+          clubheadY = (handGripY / height + 0.08) * height;
+        }
+
+        // Draw Golf Ball on tee/turf (visible during address, backswing, and impact)
+        if (activeIntFrame <= 292) {
+          const ballX = 0.50 * width;
+          const ballY = 0.905 * height;
+
+          // Ball shadow
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+          ctx.beginPath();
+          ctx.ellipse(ballX, ballY + 4, 5, 2, 0, 0, 2 * Math.PI);
+          ctx.fill();
+
+          // White golf ball
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(ballX, ballY, 4.5, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.strokeStyle = '#cbd5e1';
+          ctx.lineWidth = 0.8;
+          ctx.stroke();
+        }
+
+        // Club Shaft (steel shaft with metallic sheen)
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(handGripX, handGripY);
+        ctx.lineTo(clubheadX, clubheadY);
+        ctx.stroke();
+
+        // Clubhead (metallic gray clubhead)
+        ctx.fillStyle = '#94a3b8';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.ellipse(clubheadX, clubheadY, 7, 4, activeIntFrame > 230 && activeIntFrame < 350 ? -0.4 : 0.3, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+      }
     }
 
     // 5. Draw Biomechanical Vector Lines (Spine Angle, Shoulder Line, Pelvis Line)
@@ -392,11 +502,25 @@ export default function SwingAnalysisView({
         ctx.lineTo(midShoulderX, midShoulderY);
         ctx.stroke();
 
-        // Spine Angle Tag
+        // Spine Angle Tag (Badge pill positioned cleanly beside the spine)
         if (currentKinematics) {
+          const midSpineX = (midHipX + midShoulderX) / 2 + 10;
+          const midSpineY = (midHipY + midShoulderY) / 2;
+
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+          ctx.strokeStyle = '#10b981';
+          ctx.lineWidth = 1;
+          ctx.roundRect(midSpineX, midSpineY - 11, 86, 22, 6);
+          ctx.fill();
+          ctx.stroke();
+
           ctx.fillStyle = '#10b981';
-          ctx.font = 'bold 11px sans-serif';
-          ctx.fillText(`Ryggrad: ${currentKinematics.spineInclination}°`, midShoulderX + 8, midShoulderY);
+          ctx.font = 'bold 10.5px sans-serif';
+          ctx.fillText(
+            `${isSv ? 'Ryggrad' : 'Spine'}: ${currentKinematics.spineInclination}°`,
+            midSpineX + 7,
+            midSpineY + 4
+          );
         }
 
         // SHOULDER LINE (Bright Gold)
@@ -432,8 +556,8 @@ export default function SwingAnalysisView({
 
     ctx.fillStyle = '#94a3b8';
     ctx.font = '10px monospace';
-    ctx.fillText(`Frame: ${activeIntFrame} / ${frames.length - 1}`, width - 185, 48);
-    ctx.fillText(`Tid: ${Math.round(currentFrame.timestampMs)} ms`, width - 185, 62);
+    ctx.fillText(`${isSv ? 'Bildruta' : 'Frame'}: ${activeIntFrame} / ${frames.length - 1}`, width - 185, 48);
+    ctx.fillText(`${isSv ? 'Tid' : 'Time'}: ${Math.round(currentFrame.timestampMs)} ms`, width - 185, 62);
 
     // 240 FPS Live indicator badge
     ctx.fillStyle = '#10b981';
@@ -518,6 +642,16 @@ export default function SwingAnalysisView({
               <span>↔️</span>
               <span>Sway</span>
             </button>
+            <button
+              onClick={() => handleLoadSample('CHICKEN_WING')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                sampleType === 'CHICKEN_WING' ? 'bg-orange-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+              title={isSv ? 'Simulera sving med Chicken Wing (P8)' : 'Simulate swing with Chicken Wing (P8)'}
+            >
+              <span>🍗</span>
+              <span>{isSv ? 'Chicken Wing' : 'Chicken Wing'}</span>
+            </button>
           </div>
 
           {/* Upload Slow-Mo Video */}
@@ -554,7 +688,7 @@ export default function SwingAnalysisView({
         {/* Left Column: 240 fps Canvas + Player Controls (7 cols) */}
         <div className="lg:col-span-7 flex flex-col gap-3">
           {/* Canvas Container */}
-          <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 aspect-[4/3] flex items-center justify-center shadow-2xl">
+          <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 aspect-[16/10] max-h-[360px] flex items-center justify-center shadow-2xl">
             <canvas ref={canvasRef} width={640} height={480} className="w-full h-full object-contain" />
 
             {/* Overlay toggle chips */}
@@ -799,7 +933,7 @@ export default function SwingAnalysisView({
                   <div className="text-base font-black text-white flex items-center gap-2 mt-0.5">
                     <span className="text-emerald-400">{analysis.tempo.tempoRatio}:1</span>
                     <span className="text-xs font-normal text-slate-400 font-mono">
-                      ({analysis.tempo.backswingDurationMs}ms / {analysis.tempo.downswingDurationMs}ms)
+                      ({Math.round(analysis.tempo.backswingDurationMs)} ms / {Math.round(analysis.tempo.downswingDurationMs)} ms)
                     </span>
                   </div>
                 </div>

@@ -21,7 +21,7 @@ function lm(id: LandmarkId, x: number, y: number, z: number, visibility = 0.99):
   return { id, x, y, z, visibility };
 }
 
-export type SampleSwingType = 'OPTIMAL' | 'EARLY_EXTENSION' | 'SWAY';
+export type SampleSwingType = 'OPTIMAL' | 'EARLY_EXTENSION' | 'SWAY' | 'CHICKEN_WING';
 
 /**
  * Generates a full 240 fps Face-On golf swing pose sequence (~480 frames = 2.0 seconds).
@@ -146,12 +146,18 @@ export function generate240FpsSwingSequence(
 
     const headX = 0.50 + lateralOffset * 0.5 + (i > 40 && i <= 230 ? ((i - 40) / 190) * 0.02 : (i > 230 && i <= 290 ? 0.02 : 0.0));
 
+    // Elbow positioning: lead arm straight in release for optimal tour swing
+    let leadElbowOffsetX = -0.01;
+    if (swingType === 'CHICKEN_WING' && i >= 290 && i <= 360) {
+      leadElbowOffsetX = -0.06; // Significant lead elbow chicken wing fold
+    }
+
     const landmarks: Landmark[] = [
       lm(LandmarkId.NOSE, headX, headY, 0),
       lm(LandmarkId.LEFT_SHOULDER, lsX, shoulderY, lsZ),
       lm(LandmarkId.RIGHT_SHOULDER, rsX, shoulderY, rsZ),
-      lm(LandmarkId.LEFT_ELBOW, (lsX + handX) / 2 - 0.04, (shoulderY + handY) / 2, lsZ / 2),
-      lm(LandmarkId.RIGHT_ELBOW, (rsX + handX) / 2 + 0.04, (shoulderY + handY) / 2, rsZ / 2),
+      lm(LandmarkId.LEFT_ELBOW, (lsX + handX) / 2 + leadElbowOffsetX, (shoulderY + handY) / 2, lsZ / 2),
+      lm(LandmarkId.RIGHT_ELBOW, (rsX + handX) / 2 + 0.02, (shoulderY + handY) / 2, rsZ / 2),
       lm(LandmarkId.LEFT_WRIST, handX - 0.02, handY, handZ),
       lm(LandmarkId.RIGHT_WRIST, handX + 0.02, handY, handZ),
       lm(LandmarkId.LEFT_HIP, lhX, hipY, lhZ),
