@@ -182,7 +182,7 @@ export const LOCALES: Record<SupportedLanguage, Record<CoachingPhraseKey, string
     GHOST_CUE_P1: 'Position 1: Adress. Mjuka upp knäna, fäll från höften och låt armarna hänga avspänt.',
     GHOST_CUE_P2: 'Position 2: Takeaway. Klubbskaft parallellt med marken, bred axelvridning.',
     GHOST_CUE_P3: 'Position 3: Halv baksving. Främre armen parallell med marken, vinkla handlederna nittio grader.',
-    GHOST_CUE_P4: 'Position 4: Toppen av baksvingen. Full axelvridning, höger armbåge i kypargrepp.',
+    GHOST_CUE_P4: 'Position 4: Toppen av baksvingen. Full axelvridning, bakre armbåge i kypargrepp.',
     GHOST_CUE_P5: 'Position 5: The Slot. Droppa händerna i svingplanet och behåll handledsvinkeln.',
     GHOST_CUE_P6: 'Position 6: Delivery. Klubbskaftet parallellt med mållinjen, öppna upp höfterna.',
     GHOST_CUE_P7: 'Position 7: Impact! Handledspress framåt, höfterna öppna fyrtiofem grader, huvudet bakom bollen.',

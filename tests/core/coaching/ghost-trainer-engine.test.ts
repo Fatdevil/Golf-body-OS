@@ -35,14 +35,48 @@ describe('Ghost Trainer Engine (P1-P10)', () => {
   it('should achieve a high match score (>80%) when evaluating Pro against Pro reference at P4 (Top)', () => {
     const dtlSeq = generate240FpsSwingSequence(480, 'OPTIMAL', 'DOWN_THE_LINE');
     const addressFrame = dtlSeq[0];
-    const topFrame = dtlSeq[240];
+    const topFrame = dtlSeq[230];
     const p4Cp = GHOST_CHECKPOINTS.find(c => c.id === 'P4_TOP_OF_BACKSWING')!;
+    expect(p4Cp.frameIndex240Fps).toBe(230);
 
-    const result = evaluateGhostPoseMatch(topFrame, p4Cp, addressFrame, 'DOWN_THE_LINE', true);
+    const result = evaluateGhostPoseMatch(topFrame, p4Cp, addressFrame, 'DOWN_THE_LINE', true, true);
 
     expect(result.checkpointId).toBe('P4_TOP_OF_BACKSWING');
     expect(result.matchScore).toBeGreaterThanOrEqual(80);
     expect(result.isLocked).toBe(true);
+  });
+
+  it('should support left-handed golfers and achieve high match score (>80%) at P4', () => {
+    const { mirrorPoseFrame } = require('../../../src/core/coordinates/pose-mirror');
+    const dtlSeq = generate240FpsSwingSequence(480, 'OPTIMAL', 'DOWN_THE_LINE');
+    const addressFrame = mirrorPoseFrame(dtlSeq[0]);
+    // Create authentic left-handed golfer pose by mirroring the optimal top frame
+    const leftyTopFrame = mirrorPoseFrame(dtlSeq[230]);
+    const p4Cp = GHOST_CHECKPOINTS.find(c => c.id === 'P4_TOP_OF_BACKSWING')!;
+
+    // Left-handed golfer in selfie view
+    const result = evaluateGhostPoseMatch(leftyTopFrame, p4Cp, addressFrame, 'DOWN_THE_LINE', false, true);
+
+    expect(result.checkpointId).toBe('P4_TOP_OF_BACKSWING');
+    expect(result.matchScore).toBeGreaterThanOrEqual(80);
+    expect(result.isLocked).toBe(true);
+  });
+
+  it('should correctly flip Ghost between righty and lefty / video modes', () => {
+    const rightySelfie = getProCheckpointPoseFrame('P4_TOP_OF_BACKSWING', 'FACE_ON', true, true);
+    const leftySelfie = getProCheckpointPoseFrame('P4_TOP_OF_BACKSWING', 'FACE_ON', false, true);
+    const rightyVideo = getProCheckpointPoseFrame('P4_TOP_OF_BACKSWING', 'FACE_ON', true, false);
+
+    const rsLW = rightySelfie.landmarks.find(l => l.id === 15); // LEFT_WRIST
+    const lsRW = leftySelfie.landmarks.find(l => l.id === 16);  // RIGHT_WRIST
+    expect(rsLW).toBeDefined();
+    expect(lsRW).toBeDefined();
+    // Lefty lead wrist (RIGHT_WRIST) X should be mirrored from Righty lead wrist (LEFT_WRIST)
+    expect(lsRW!.x).toBeCloseTo(1 - rsLW!.x);
+
+    // Righty in unmirrored video should match lefty in selfie
+    const rvRW = rightyVideo.landmarks.find(l => l.id === 16);
+    expect(rvRW?.x).toBeCloseTo(lsRW!.x);
   });
 
   it('should identify insufficient shoulder turn at P4 and trigger GHOST_ROTATE_MORE cue', () => {
@@ -52,7 +86,7 @@ describe('Ghost Trainer Engine (P1-P10)', () => {
     const earlyFrame = dtlSeq[80];
     const p4Cp = GHOST_CHECKPOINTS.find(c => c.id === 'P4_TOP_OF_BACKSWING')!;
 
-    const result = evaluateGhostPoseMatch(earlyFrame, p4Cp, addressFrame, 'DOWN_THE_LINE', true);
+    const result = evaluateGhostPoseMatch(earlyFrame, p4Cp, addressFrame, 'DOWN_THE_LINE', true, true);
 
     expect(result.matchScore).toBeLessThan(70);
     expect(result.isLocked).toBe(false);

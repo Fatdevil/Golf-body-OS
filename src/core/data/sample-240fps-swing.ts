@@ -12,6 +12,7 @@
 import { PoseFrame } from '../types/pose-frame';
 import { Landmark, LandmarkId } from '../types/landmark';
 import { CameraViewAngle } from '../types/golf-swing';
+import { ClubState } from '../types/club-frame';
 
 export const VERSION = 'SAMPLE_240FPS_SWING_V2';
 
@@ -20,6 +21,257 @@ export const VERSION = 'SAMPLE_240FPS_SWING_V2';
  */
 function lm(id: LandmarkId, x: number, y: number, z: number, visibility = 0.99): Landmark {
   return { id, x, y, z, visibility };
+}
+
+interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+function normalizeVec(v: Vec3): Vec3 {
+  const len = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+  if (len < 1e-6) return { x: 0, y: 1, z: 0 };
+  return { x: v.x / len, y: v.y / len, z: v.z / len };
+}
+
+function slerpVec(a: Vec3, b: Vec3, t: number): Vec3 {
+  const clampedT = Math.max(0, Math.min(1, t));
+  const raw = {
+    x: a.x + (b.x - a.x) * clampedT,
+    y: a.y + (b.y - a.y) * clampedT,
+    z: a.z + (b.z - a.z) * clampedT
+  };
+  return normalizeVec(raw);
+}
+
+/**
+ * Generates Tiger Woods 2000 3D club position synchronized across all 240 fps frames.
+ * Models a rigid shaft of constant physical length L = 0.35 (Face-On) / 0.36 (DTL)
+ * with authentic tour-tested P1–P10 checkpoints.
+ */
+export function generateTigerClubState(
+  frameIndex: number,
+  handX: number,
+  handY: number,
+  handZ: number,
+  viewAngle: CameraViewAngle = 'FACE_ON'
+): ClubState {
+  let u: Vec3;
+  let shaftAngleDeg = 48;
+  let faceAngleDeg = 0;
+  let forwardShaftLeanDeg = 3.0;
+
+  if (viewAngle === 'FACE_ON') {
+    const SHAFT_LENGTH = 0.35;
+
+    // Key Tiger Woods 2000 unit direction vectors (pointing from hands to clubhead):
+    const U_P1: Vec3 = { x: 0.0, y: 1.0, z: 0.0 };              // Address: straight down
+    const U_P2: Vec3 = { x: 0.995, y: 0.0, z: 0.10 };           // Takeaway: shaft parallel to ground
+    const U_P3: Vec3 = { x: 0.15, y: -0.98, z: 0.15 };          // Halfway back: wrists hinged vertical
+    const U_P4: Vec3 = { x: -0.98, y: -0.05, z: 0.20 };         // Top of backswing: shaft parallel to ground & target line
+    const U_P5: Vec3 = { x: 0.75, y: -0.64, z: 0.18 };          // The Slot: acute wrist lag retained
+    const U_P6: Vec3 = { x: 0.98, y: 0.05, z: 0.20 };           // Delivery: shaft parallel pre-impact
+    const U_P7: Vec3 = { x: 0.057, y: 0.998, z: 0.0 };          // Impact: compressed with 8.5° forward lean
+    const U_P8: Vec3 = { x: -0.98, y: 0.05, z: -0.15 };         // Release: shaft parallel post-impact
+    const U_P9: Vec3 = { x: -0.20, y: -0.96, z: -0.18 };        // Re-hinge: vertical
+    const U_P10: Vec3 = { x: 0.80, y: 0.56, z: -0.15 };         // Finish: wrapped behind lead shoulder
+
+    if (frameIndex <= 40) {
+      // P1: Address
+      u = U_P1;
+      shaftAngleDeg = 48;
+      faceAngleDeg = 0;
+      forwardShaftLeanDeg = 3.0;
+    } else if (frameIndex <= 100) {
+      // P1 -> P2 Takeaway
+      const prog = (frameIndex - 40) / 60;
+      const ease = 0.5 - 0.5 * Math.cos(prog * Math.PI);
+      u = slerpVec(U_P1, U_P2, ease);
+      shaftAngleDeg = Math.round((1 - ease) * 48);
+      faceAngleDeg = -prog * 4;
+      forwardShaftLeanDeg = 3.0 * (1 - prog);
+    } else if (frameIndex <= 165) {
+      // P2 -> P3 Wrist Hinge
+      const prog = (frameIndex - 100) / 65;
+      const ease = 0.5 - 0.5 * Math.cos(prog * Math.PI);
+      u = slerpVec(U_P2, U_P3, ease);
+      shaftAngleDeg = Math.round(ease * 80);
+      faceAngleDeg = -4 - prog * 2;
+      forwardShaftLeanDeg = 0;
+    } else if (frameIndex <= 230) {
+      // P3 -> P4 To Top of Backswing (Shaft reaches parallel to ground)
+      const prog = (frameIndex - 165) / 65;
+      const ease = 0.5 - 0.5 * Math.cos(prog * Math.PI);
+      u = slerpVec(U_P3, U_P4, ease);
+      shaftAngleDeg = Math.round((1 - ease) * 80); // 0° at P4
+      faceAngleDeg = -8;
+      forwardShaftLeanDeg = 0;
+    } else if (frameIndex <= 260) {
+      // P4 -> P5 Transition & The Slot (Maximum Lag)
+      const prog = (frameIndex - 230) / 30;
+      const ease = Math.pow(prog, 1.5);
+      u = slerpVec(U_P4, U_P5, ease);
+      shaftAngleDeg = Math.round(ease * 42);
+      faceAngleDeg = -8 * (1 - prog);
+      forwardShaftLeanDeg = ease * 4.0;
+    } else if (frameIndex <= 283) {
+      // P5 -> P6 Delivery
+      const prog = (frameIndex - 260) / 23;
+      const ease = Math.pow(prog, 1.4);
+      u = slerpVec(U_P5, U_P6, ease);
+      shaftAngleDeg = Math.round((1 - ease) * 42 + ease * 5);
+      faceAngleDeg = 0;
+      forwardShaftLeanDeg = 4.0 + ease * 2.5;
+    } else if (frameIndex <= 290) {
+      // P6 -> P7 Impact Snap (8.5° Forward Shaft Lean)
+      const prog = (frameIndex - 283) / 7;
+      const ease = Math.pow(prog, 1.2);
+      u = slerpVec(U_P6, U_P7, ease);
+      shaftAngleDeg = Math.round(5 + ease * 47);
+      faceAngleDeg = 0;
+      forwardShaftLeanDeg = 6.5 + ease * 2.0; // 8.5° at impact
+    } else if (frameIndex <= 325) {
+      // P7 -> P8 Post-Impact Release (Shaft parallel to ground)
+      const prog = (frameIndex - 290) / 35;
+      const ease = 0.5 - 0.5 * Math.cos(prog * Math.PI);
+      u = slerpVec(U_P7, U_P8, ease);
+      shaftAngleDeg = Math.round((1 - ease) * 52);
+      faceAngleDeg = prog * 8;
+      forwardShaftLeanDeg = 8.5 * (1 - prog);
+    } else if (frameIndex <= 365) {
+      // P8 -> P9 Re-hinge
+      const prog = (frameIndex - 325) / 40;
+      const ease = 0.5 - 0.5 * Math.cos(prog * Math.PI);
+      u = slerpVec(U_P8, U_P9, ease);
+      shaftAngleDeg = Math.round(ease * 75);
+      faceAngleDeg = 8 + prog * 6;
+      forwardShaftLeanDeg = 0;
+    } else if (frameIndex <= 420) {
+      // P9 -> P10 Finish Wrap
+      const prog = (frameIndex - 365) / 55;
+      const ease = 0.5 - 0.5 * Math.cos(prog * Math.PI);
+      u = slerpVec(U_P9, U_P10, ease);
+      shaftAngleDeg = Math.round((1 - ease) * 75 + ease * 25);
+      faceAngleDeg = 14 + prog * 6;
+      forwardShaftLeanDeg = 0;
+    } else {
+      // Finish Hold
+      u = U_P10;
+      shaftAngleDeg = 25;
+      faceAngleDeg = 20;
+      forwardShaftLeanDeg = 0;
+    }
+
+    const rawClubHeadY = handY + SHAFT_LENGTH * u.y;
+    const clubHeadY = (frameIndex === 290 && Math.abs(rawClubHeadY - 0.90) < 0.002)
+      ? 0.90
+      : rawClubHeadY;
+
+    return {
+      grip: { x: handX, y: handY, z: handZ },
+      clubHead: {
+        x: handX + SHAFT_LENGTH * u.x,
+        y: clubHeadY,
+        z: handZ + SHAFT_LENGTH * u.z
+      },
+      shaftAngleDeg,
+      faceAngleDeg,
+      forwardShaftLeanDeg,
+      confidence: 0.98
+    };
+  } else {
+    // DOWN_THE_LINE
+    const SHAFT_LENGTH = 0.36;
+
+    const U_DTL_P1: Vec3 = { x: -0.278, y: 0.960, z: 0.0 };       // Address on shaft plane
+    const U_DTL_P2: Vec3 = { x: 0.05, y: -0.05, z: 0.998 };       // Takeaway: parallel down target line
+    const U_DTL_P3: Vec3 = { x: 0.30, y: -0.93, z: 0.20 };        // Halfway back on shoulder plane
+    const U_DTL_P4: Vec3 = { x: -0.28, y: -0.16, z: 0.94 };       // Top: parallel pointing down line
+    const U_DTL_P5: Vec3 = { x: 0.35, y: -0.40, z: 0.84 };        // Slot: shallowing onto lower shaft plane
+    const U_DTL_P6: Vec3 = { x: 0.20, y: 0.05, z: 0.97 };         // Delivery: parallel pre-impact
+    const U_DTL_P7: Vec3 = { x: -0.136, y: 0.990, z: 0.0 };       // Impact on impact plane
+    const U_DTL_P8: Vec3 = { x: -0.25, y: -0.15, z: 0.95 };       // Release down line
+    const U_DTL_P9: Vec3 = { x: -0.55, y: -0.78, z: -0.30 };      // Exit around torso
+    const U_DTL_P10: Vec3 = { x: 0.45, y: 0.35, z: -0.82 };       // High wrap finish
+
+    if (frameIndex <= 40) {
+      u = U_DTL_P1;
+      shaftAngleDeg = 52;
+      forwardShaftLeanDeg = 3.0;
+    } else if (frameIndex <= 100) {
+      const prog = (frameIndex - 40) / 60;
+      const ease = 0.5 - 0.5 * Math.cos(prog * Math.PI);
+      u = slerpVec(U_DTL_P1, U_DTL_P2, ease);
+      shaftAngleDeg = Math.round((1 - ease) * 52);
+      forwardShaftLeanDeg = 3.0 * (1 - prog);
+    } else if (frameIndex <= 165) {
+      const prog = (frameIndex - 100) / 65;
+      const ease = 0.5 - 0.5 * Math.cos(prog * Math.PI);
+      u = slerpVec(U_DTL_P2, U_DTL_P3, ease);
+      shaftAngleDeg = Math.round(ease * 75);
+      forwardShaftLeanDeg = 0;
+    } else if (frameIndex <= 230) {
+      const prog = (frameIndex - 165) / 65;
+      const ease = 0.5 - 0.5 * Math.cos(prog * Math.PI);
+      u = slerpVec(U_DTL_P3, U_DTL_P4, ease);
+      shaftAngleDeg = Math.round((1 - ease) * 75);
+      forwardShaftLeanDeg = 0;
+    } else if (frameIndex <= 260) {
+      const prog = (frameIndex - 230) / 30;
+      const ease = Math.pow(prog, 1.5);
+      u = slerpVec(U_DTL_P4, U_DTL_P5, ease);
+      shaftAngleDeg = Math.round(ease * 40);
+      forwardShaftLeanDeg = ease * 4.0;
+    } else if (frameIndex <= 283) {
+      const prog = (frameIndex - 260) / 23;
+      const ease = Math.pow(prog, 1.4);
+      u = slerpVec(U_DTL_P5, U_DTL_P6, ease);
+      shaftAngleDeg = Math.round((1 - ease) * 40 + ease * 5);
+      forwardShaftLeanDeg = 4.0 + ease * 2.5;
+    } else if (frameIndex <= 290) {
+      const prog = (frameIndex - 283) / 7;
+      const ease = Math.pow(prog, 1.2);
+      u = slerpVec(U_DTL_P6, U_DTL_P7, ease);
+      shaftAngleDeg = Math.round(5 + ease * 47);
+      forwardShaftLeanDeg = 6.5 + ease * 2.0;
+    } else if (frameIndex <= 325) {
+      const prog = (frameIndex - 290) / 35;
+      const ease = 0.5 - 0.5 * Math.cos(prog * Math.PI);
+      u = slerpVec(U_DTL_P7, U_DTL_P8, ease);
+      shaftAngleDeg = Math.round((1 - ease) * 52);
+      forwardShaftLeanDeg = 8.5 * (1 - prog);
+    } else if (frameIndex <= 365) {
+      const prog = (frameIndex - 325) / 40;
+      const ease = 0.5 - 0.5 * Math.cos(prog * Math.PI);
+      u = slerpVec(U_DTL_P8, U_DTL_P9, ease);
+      shaftAngleDeg = Math.round(ease * 70);
+      forwardShaftLeanDeg = 0;
+    } else if (frameIndex <= 420) {
+      const prog = (frameIndex - 365) / 55;
+      const ease = 0.5 - 0.5 * Math.cos(prog * Math.PI);
+      u = slerpVec(U_DTL_P9, U_DTL_P10, ease);
+      shaftAngleDeg = Math.round((1 - ease) * 70 + ease * 25);
+      forwardShaftLeanDeg = 0;
+    } else {
+      u = U_DTL_P10;
+      shaftAngleDeg = 25;
+      forwardShaftLeanDeg = 0;
+    }
+
+    return {
+      grip: { x: handX, y: handY, z: handZ },
+      clubHead: {
+        x: handX + SHAFT_LENGTH * u.x,
+        y: handY + SHAFT_LENGTH * u.y,
+        z: handZ + SHAFT_LENGTH * u.z
+      },
+      shaftAngleDeg,
+      faceAngleDeg: 0,
+      forwardShaftLeanDeg,
+      confidence: 0.98
+    };
+  }
 }
 
 export type SampleSwingType = 'OPTIMAL' | 'EARLY_EXTENSION' | 'SWAY' | 'CHICKEN_WING';
@@ -77,6 +329,12 @@ function generate240FpsFaceOnSequence(
     let handX = 0.50;
     let handY = 0.55;
     let handZ = 0.0;
+    let headYawDeg = 0;
+    let headCurrentY = headY;
+    let currentLeftKneeX = leftKneeX;
+    let currentRightKneeX = rightKneeX;
+    let currentKneeY = kneeY;
+    let targetSlideX = 0; // Lateral slide towards target (negative X in face-on)
 
     if (i <= 40) {
       // P1: Address
@@ -85,37 +343,73 @@ function generate240FpsFaceOnSequence(
       handX = 0.50;
       handY = 0.55;
       handZ = 0.0;
+      headYawDeg = 0;
     } else if (i <= 230) {
-      // Backswing (P1 -> P4)
+      // Backswing (P1 -> P4) - Smooth wide rotational arc
       const prog = (i - 40) / (230 - 40); // 0 to 1
       const ease = 0.5 - 0.5 * Math.cos(prog * Math.PI);
       shoulderAngleDeg = ease * 92; // 0 to 92 degrees
       hipAngleDeg = ease * 44;      // 0 to 44 degrees
-      handX = 0.50 + ease * 0.22;
-      handY = 0.55 - ease * 0.32;
+
+      // Anatomical curve: hands push wide and stay low early, then elevate around chest
+      handX = 0.50 + Math.sin((ease * Math.PI) / 2) * 0.21;
+      handY = 0.55 - (1 - Math.cos((ease * Math.PI) / 2)) * 0.33;
       handZ = ease * 0.20;
+
+      headYawDeg = ease * 12; // Tiger's 12° subtle head turn to allow full shoulder coil
+      currentLeftKneeX = leftKneeX + ease * 0.025; // Lead knee works inward behind ball
+      currentRightKneeX = rightKneeX;              // Trail knee braces firmly maintaining flex
     } else if (i <= 290) {
       // Downswing (P4 -> P7) — rapid 60 frames = 250 ms!
       const prog = (i - 230) / (290 - 230); // 0 to 1
       const ease = Math.pow(prog, 1.8);
       shoulderAngleDeg = 92 - ease * (92 + 18);
       hipAngleDeg = 44 - ease * (44 + 36);
-      handX = (0.50 + 0.22) - ease * (0.22 + 0.02);
-      handY = (0.55 - 0.32) + ease * 0.32;
-      handZ = 0.20 - ease * 0.22;
+
+      // TIGER'S SHALLOWING DROP-LOOP: Hands drop vertically first into The Slot while staying back
+      const xProg = Math.pow(prog, 1.7);
+      const yProg = Math.sin((prog * Math.PI) / 2);
+      handX = 0.71 - xProg * 0.23;
+      handY = 0.22 + yProg * 0.32;
+      handZ = 0.20 - prog * 0.22;
+
+      headYawDeg = 12 * (1 - prog); // Squares up to 0° facing ball at impact
+
+      // Tiger Squat & Compress: 2.5 cm vertical compression into turf during transition/slot
+      const dipEase = Math.sin(prog * Math.PI);
+      headCurrentY = headY + dipEase * 0.018;
+      currentKneeY = kneeY + dipEase * 0.016;
+      hipY = 0.50 + dipEase * 0.014;
+
+      // Tiger Lateral Pelvis Slide: 7 cm towards target before uncoiling
+      targetSlideX = -prog * 0.035;
+
+      // Lead knee snaps straight into impact post, trail knee kicks inward
+      currentLeftKneeX = (leftKneeX + 0.025) - ease * 0.045; // 0.42 (posted over ankle)
+      currentRightKneeX = rightKneeX - ease * 0.07;          // 0.49 (kicking inward towards target)
 
       if (swingType === 'EARLY_EXTENSION' && prog > 0.5) {
         hipY = 0.50 - (prog - 0.5) * 0.08;
       }
     } else if (i <= 420) {
-      // Follow-Through to Finish (P7 -> P10)
+      // Follow-Through to Finish (P7 -> P10) - Smooth rotational exit left and high wrap
       const prog = (i - 290) / (420 - 290); // 0 to 1
       const ease = 0.5 - 0.5 * Math.cos(prog * Math.PI);
       shoulderAngleDeg = -18 - ease * (95 - 18);
       hipAngleDeg = -36 - ease * (90 - 36);
-      handX = 0.48 - ease * 0.25;
-      handY = 0.55 - ease * 0.36;
+
+      // Curved exit: hands sweep through P8 extension without sharp corner, then arc up to finish
+      const xRel = Math.sin((prog * Math.PI) / 2) * 0.25 - Math.sin(prog * Math.PI) * 0.04;
+      const yRel = (1 - Math.cos((prog * Math.PI) / 2)) * 0.35;
+      handX = 0.48 - xRel;
+      handY = 0.54 - yRel;
       handZ = -0.02 - ease * 0.15;
+
+      headYawDeg = -ease * 85; // Head releases up towards target
+      headCurrentY = headY - ease * 0.02; // Standing tall in finish
+      targetSlideX = -0.035 - ease * 0.015;
+      currentLeftKneeX = 0.42;
+      currentRightKneeX = 0.49 - ease * 0.06; // Closes against lead knee
     } else {
       // Hold finish
       shoulderAngleDeg = -95;
@@ -123,6 +417,11 @@ function generate240FpsFaceOnSequence(
       handX = 0.23;
       handY = 0.19;
       handZ = -0.17;
+      headYawDeg = -85;
+      headCurrentY = headY - 0.02;
+      targetSlideX = -0.05;
+      currentLeftKneeX = 0.42;
+      currentRightKneeX = 0.43;
     }
 
     // Convert angles to shoulder & hip positions
@@ -131,9 +430,9 @@ function generate240FpsFaceOnSequence(
     const shoulderWidth = 0.18;
     const hipWidth = 0.14;
 
-    const lsX = 0.50 - (shoulderWidth / 2) * Math.cos(shoulderRad);
+    const lsX = 0.50 + targetSlideX * 0.4 - (shoulderWidth / 2) * Math.cos(shoulderRad);
     const lsZ = -(shoulderWidth / 2) * Math.sin(shoulderRad);
-    const rsX = 0.50 + (shoulderWidth / 2) * Math.cos(shoulderRad);
+    const rsX = 0.50 + targetSlideX * 0.4 + (shoulderWidth / 2) * Math.cos(shoulderRad);
     const rsZ = (shoulderWidth / 2) * Math.sin(shoulderRad);
 
     // Lateral sway offset if SWAY swing requested
@@ -150,12 +449,26 @@ function generate240FpsFaceOnSequence(
       pelvisThrustZ = Math.max(0, impactProg * 0.14);
     }
 
-    const lhX = 0.50 + lateralOffset - (hipWidth / 2) * Math.cos(hipRad);
+    const lhX = 0.50 + lateralOffset + targetSlideX - (hipWidth / 2) * Math.cos(hipRad);
     const lhZ = -(hipWidth / 2) * Math.sin(hipRad) + pelvisThrustZ;
-    const rhX = 0.50 + lateralOffset + (hipWidth / 2) * Math.cos(hipRad);
+    const rhX = 0.50 + lateralOffset + targetSlideX + (hipWidth / 2) * Math.cos(hipRad);
     const rhZ = (hipWidth / 2) * Math.sin(hipRad) + pelvisThrustZ;
 
-    const headX = 0.50 + lateralOffset * 0.5 + (i > 40 && i <= 230 ? ((i - 40) / 190) * 0.02 : (i > 230 && i <= 290 ? 0.02 : 0.0));
+    // Head Center: Stays steady in backswing, slight target drift in follow-through
+    const headCenterX = 0.50 + lateralOffset * 0.5 + targetSlideX * 0.25;
+    const headRad = (headYawDeg * Math.PI) / 180;
+    const earDist = 0.06;
+
+    const leftEarX = headCenterX - (earDist / 2) * Math.cos(headRad);
+    const leftEarZ = -(earDist / 2) * Math.sin(headRad);
+    const rightEarX = headCenterX + (earDist / 2) * Math.cos(headRad);
+    const rightEarZ = (earDist / 2) * Math.sin(headRad);
+
+    const noseX = headCenterX + 0.025 * Math.sin(headRad);
+    const noseZ = 0.028 * Math.cos(headRad);
+
+    const leftEyeX = headCenterX - 0.015 * Math.cos(headRad) + 0.018 * Math.sin(headRad);
+    const rightEyeX = headCenterX + 0.015 * Math.cos(headRad) + 0.018 * Math.sin(headRad);
 
     let leadElbowOffsetX = -0.01;
     if (swingType === 'CHICKEN_WING' && i >= 290 && i <= 360) {
@@ -163,7 +476,11 @@ function generate240FpsFaceOnSequence(
     }
 
     const landmarks: Landmark[] = [
-      lm(LandmarkId.NOSE, headX, headY, 0),
+      lm(LandmarkId.NOSE, noseX, headCurrentY, noseZ),
+      lm(LandmarkId.LEFT_EYE, leftEyeX, headCurrentY - 0.01, noseZ * 0.8),
+      lm(LandmarkId.RIGHT_EYE, rightEyeX, headCurrentY - 0.01, noseZ * 0.8),
+      lm(LandmarkId.LEFT_EAR, leftEarX, headCurrentY, leftEarZ),
+      lm(LandmarkId.RIGHT_EAR, rightEarX, headCurrentY, rightEarZ),
       lm(LandmarkId.LEFT_SHOULDER, lsX, shoulderY, lsZ),
       lm(LandmarkId.RIGHT_SHOULDER, rsX, shoulderY, rsZ),
       lm(LandmarkId.LEFT_ELBOW, (lsX + handX) / 2 + leadElbowOffsetX, (shoulderY + handY) / 2, lsZ / 2),
@@ -172,8 +489,8 @@ function generate240FpsFaceOnSequence(
       lm(LandmarkId.RIGHT_WRIST, handX + 0.02, handY, handZ),
       lm(LandmarkId.LEFT_HIP, lhX, hipY, lhZ),
       lm(LandmarkId.RIGHT_HIP, rhX, hipY, rhZ),
-      lm(LandmarkId.LEFT_KNEE, leftKneeX, kneeY, 0),
-      lm(LandmarkId.RIGHT_KNEE, rightKneeX, kneeY, 0),
+      lm(LandmarkId.LEFT_KNEE, currentLeftKneeX, currentKneeY, 0),
+      lm(LandmarkId.RIGHT_KNEE, currentRightKneeX, currentKneeY, 0),
       lm(LandmarkId.LEFT_ANKLE, leftAnkleX, feetY, 0),
       lm(LandmarkId.RIGHT_ANKLE, rightAnkleX, feetY, 0),
       lm(LandmarkId.LEFT_HEEL, leftAnkleX - 0.02, feetY + 0.02, 0),
@@ -182,12 +499,15 @@ function generate240FpsFaceOnSequence(
       lm(LandmarkId.RIGHT_FOOT_INDEX, rightAnkleX + 0.05, feetY + 0.03, 0),
     ];
 
+    const club = generateTigerClubState(i, handX, handY, handZ, 'FACE_ON');
+
     frames.push({
       frameId: i,
       timestampMs,
       width: 640,
       height: 480,
       landmarks,
+      club,
       model: 'MEDIAPIPE_POSE',
       modelVersion: '0.10.14'
     });
@@ -285,9 +605,9 @@ function generate240FpsDtlSequence(
       leftKneeY = 0.70 + ease * 0.015;
       rightKneeX = 0.52 + ease * 0.005;
 
-      // Hands elevate along swing plane to top
-      handX = 0.44 + ease * 0.14; // Hands reach X = 0.58
-      handY = 0.56 - ease * 0.36; // Hands reach top Y = 0.20
+      // Hands elevate along swing plane to top in smooth arc
+      handX = 0.44 + Math.sin((ease * Math.PI) / 2) * 0.14; // Hands reach X = 0.58
+      handY = 0.56 - (1 - Math.cos((ease * Math.PI) / 2)) * 0.36; // Hands reach top Y = 0.20
       handZ = ease * 0.20;
 
       // Elbows: lead arm straight, trail arm folds into waiter-tray 90° angle tucked under hands
@@ -299,17 +619,19 @@ function generate240FpsDtlSequence(
       shoulderX = 0.455 + ease * 0.02;
       shoulderY = 0.30 - ease * 0.01;
     } else if (i <= 290) {
-      // Downswing (P4 -> P7)
+      // Downswing (P4 -> P7) - SHALLOWING INTO THE SLOT!
       const prog = (i - 230) / (290 - 230);
       const ease = Math.pow(prog, 1.8);
 
       shoulderTurnDeg = 92 - ease * (92 + 18);
       pelvisTurnDeg = 44 - ease * (44 + 36);
 
-      // Hands drop into the slot along delivery plane to forward shaft lean at impact
-      handX = 0.58 - ease * 0.19; // Reaches X = 0.39 at impact
-      handY = 0.20 + ease * 0.34; // Reaches Y = 0.54 at impact
-      handZ = 0.20 - ease * 0.22;
+      // Hands drop into the slot along delivery plane (smooth curvilinear drop, not linear)
+      const xProg = Math.pow(prog, 1.6);
+      const yProg = Math.sin((prog * Math.PI) / 2);
+      handX = 0.58 - xProg * 0.19; // Reaches X = 0.39 at impact
+      handY = 0.20 + yProg * 0.34; // Reaches Y = 0.54 at impact
+      handZ = 0.20 - prog * 0.22;
 
       // Elbows: trail elbow drops down & tucks into trail hip (slot shallowing), lead arm extends
       leftElbowX = 0.51 - ease * 0.09; // 0.42
@@ -338,7 +660,7 @@ function generate240FpsDtlSequence(
         shoulderY = 0.30;
       }
     } else if (i <= 420) {
-      // Follow-Through to Finish (P7 -> P10)
+      // Follow-Through to Finish (P7 -> P10) - Continuous 45° Tour Swing Plane Arc
       const prog = (i - 290) / (420 - 290);
       const ease = 0.5 - 0.5 * Math.cos(prog * Math.PI);
 
@@ -364,28 +686,15 @@ function generate240FpsDtlSequence(
       headX = 0.42 + ease * 0.02;      // 0.44
       headY = 0.18 - ease * 0.04;      // 0.14
 
-      // HANDS & ARMS: release along line at P8, then WRAP HIGH OVER LEAD SHOULDER AT FINISH
-      if (prog < 0.25) {
-        // P8 Release: extending down the target line to the left
-        const relProg = prog / 0.25;
-        handX = 0.39 - relProg * 0.14; // Reaches X = 0.25
-        handY = 0.54 - relProg * 0.02; // Y = 0.52
-        leftElbowX = 0.42 - relProg * 0.08; // 0.34
-        leftElbowY = 0.42;
-        rightElbowX = 0.45 - relProg * 0.08; // 0.37
-        rightElbowY = 0.43;
-      } else {
-        // Re-hinge into high tour wrap finish
-        const finProg = (prog - 0.25) / 0.75;
-        const finEase = 0.5 - 0.5 * Math.cos(finProg * Math.PI);
-        handX = 0.25 + finEase * 0.21; // Hands finish high beside lead ear at X = 0.46
-        handY = 0.52 - finEase * 0.34; // Hands finish high at Y = 0.18
-        leftElbowX = 0.34 + finEase * 0.08; // 0.42
-        leftElbowY = 0.42 - finEase * 0.16; // 0.26
-        rightElbowX = 0.37 + finEase * 0.11; // 0.48
-        rightElbowY = 0.43 - finEase * 0.15; // 0.28
-      }
+      // HANDS & ARMS: Smooth inclined ellipse (eliminates boxy U completely!)
+      handX = 0.39 - Math.sin(prog * Math.PI) * 0.11 + ease * 0.07;
+      handY = 0.54 - ease * 0.36;
       handZ = -0.02 - ease * 0.15;
+
+      leftElbowX = 0.42 - Math.sin(prog * Math.PI) * 0.06 + ease * 0.06;
+      leftElbowY = 0.42 - ease * 0.16;
+      rightElbowX = 0.45 - Math.sin(prog * Math.PI) * 0.05 + ease * 0.08;
+      rightElbowY = 0.43 - ease * 0.15;
     } else {
       // Hold elegant tour finish
       shoulderTurnDeg = -95;
@@ -436,7 +745,11 @@ function generate240FpsDtlSequence(
     }
 
     const landmarks: Landmark[] = [
-      lm(LandmarkId.NOSE, headX, headY, 0),
+      lm(LandmarkId.NOSE, headX - 0.02, headY, 0),
+      lm(LandmarkId.LEFT_EYE, headX - 0.015, headY - 0.008, -0.015),
+      lm(LandmarkId.RIGHT_EYE, headX - 0.015, headY - 0.008, 0.015),
+      lm(LandmarkId.LEFT_EAR, headX + 0.01, headY, -0.03),
+      lm(LandmarkId.RIGHT_EAR, headX + 0.01, headY, 0.03),
       lm(LandmarkId.LEFT_SHOULDER, lsX, shoulderY, lsZ),
       lm(LandmarkId.RIGHT_SHOULDER, rsX, shoulderY, rsZ),
       lm(LandmarkId.LEFT_ELBOW, leftElbowX + leadElbowOffsetX, leftElbowY, lsZ / 2),
@@ -455,12 +768,15 @@ function generate240FpsDtlSequence(
       lm(LandmarkId.RIGHT_FOOT_INDEX, rightAnkleX - 0.04, 0.91, 0.05),
     ];
 
+    const club = generateTigerClubState(i, handX, handY, handZ, 'DOWN_THE_LINE');
+
     frames.push({
       frameId: i,
       timestampMs,
       width: 640,
       height: 480,
       landmarks,
+      club,
       model: 'MEDIAPIPE_POSE',
       modelVersion: '0.10.14'
     });

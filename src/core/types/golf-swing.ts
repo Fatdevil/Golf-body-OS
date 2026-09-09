@@ -143,6 +143,13 @@ export interface SwingKinematics {
   kneeFlex: number;             // Knee flexion angle
   leadArmAngle: number;         // Angle of lead arm vs horizontal
   leadElbowAngle: number;       // Angle of lead elbow (180° = straight)
+  // 3D Head Orientation & Motion
+  headRotationDeg?: number;     // Head rotation (Yaw) around cervical spine (+ towards target, - away)
+  headTiltDeg?: number;         // Head lateral tilt (Roll) vs horizontal
+  headVerticalDip?: number;     // Vertical compression/dip from address (+ down/squat, - lift)
+  // Knee Kinematics (degrees: 180° = straight/extended, lower = flexed)
+  leadKneeFlexionDeg?: number;  // Lead knee extension angle
+  trailKneeFlexionDeg?: number; // Trail knee extension angle
   // Translations (normalized ratios relative to body height or stance)
   lateralHeadSway: number;      // Shift along target line from address (+ towards target, - away)
   lateralPelvisShift: number;   // Shift of pelvis center along target line

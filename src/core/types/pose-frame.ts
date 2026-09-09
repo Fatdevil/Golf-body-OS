@@ -1,4 +1,5 @@
 import { Landmark } from './landmark';
+import { ClubState } from './club-frame';
 
 /**
  * @module pose-frame
@@ -22,6 +23,8 @@ export interface PoseFrame {
   landmarks: Landmark[];
   /** Optional world-coordinate landmarks */
   worldLandmarks?: Landmark[];
+  /** Optional synchronized golf club position */
+  club?: ClubState;
   /** Pose estimation model used */
   model: string;
   /** Version of the model used */

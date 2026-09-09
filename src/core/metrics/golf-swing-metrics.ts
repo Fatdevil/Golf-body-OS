@@ -95,6 +95,66 @@ export function computeSpineInclination(frame: PoseFrame, view: CameraViewAngle)
 }
 
 /**
+ * Computes the 3D cranial center of the head.
+ * Prefers the midpoint between LEFT_EAR and RIGHT_EAR for rotation-invariant tracking,
+ * with fallback to NOSE if ears are not detected.
+ */
+export function getCranialCenter(frame: PoseFrame): { x: number; y: number; z: number } | null {
+  const earL = getLandmark(frame, LandmarkId.LEFT_EAR);
+  const earR = getLandmark(frame, LandmarkId.RIGHT_EAR);
+  if (earL && earR) {
+    return {
+      x: (earL.x + earR.x) / 2,
+      y: (earL.y + earR.y) / 2,
+      z: ((earL.z ?? 0) + (earR.z ?? 0)) / 2
+    };
+  }
+  const nose = getLandmark(frame, LandmarkId.NOSE);
+  if (nose) {
+    return { x: nose.x, y: nose.y, z: nose.z ?? 0 };
+  }
+  return null;
+}
+
+/**
+ * Computes head rotation (Yaw) and head tilt (Roll) in degrees.
+ */
+export function computeHeadRotation(
+  frame: PoseFrame,
+  isRightHanded = true
+): { yawDeg: number; tiltDeg: number } {
+  const earL = getLandmark(frame, LandmarkId.LEFT_EAR);
+  const earR = getLandmark(frame, LandmarkId.RIGHT_EAR);
+  const nose = getLandmark(frame, LandmarkId.NOSE);
+
+  let yawDeg = 0;
+  let tiltDeg = 0;
+
+  if (earL && earR) {
+    const dx = earR.x - earL.x;
+    const dy = earR.y - earL.y;
+    const dz = (earR.z ?? 0) - (earL.z ?? 0);
+
+    // Roll / Tilt: angle of ear line vs horizontal
+    tiltDeg = Math.round(toDegrees(Math.atan2(dy, dx)));
+
+    // Yaw (Head turn around vertical cervical spine):
+    if (Math.abs(dz) > 0.005) {
+      // 3D calculation if depth is available
+      yawDeg = Math.round(toDegrees(Math.atan2(dz, Math.abs(dx))));
+    } else if (nose) {
+      // 2D projection: nose offset relative to ear midpoint
+      const earMidX = (earL.x + earR.x) / 2;
+      const earHalfDist = Math.abs(dx) / 2 || 0.04;
+      const ratio = Math.max(-1, Math.min(1, (nose.x - earMidX) / earHalfDist));
+      yawDeg = Math.round(toDegrees(Math.asin(ratio)));
+    }
+  }
+
+  return { yawDeg, tiltDeg };
+}
+
+/**
  * Extracts complete kinematic metrics for a single P-phase frame.
  */
 export function extractPhaseKinematics(
@@ -122,8 +182,6 @@ export function extractPhaseKinematics(
   const addrRS = getLandmark(addressFrame, LandmarkId.RIGHT_SHOULDER);
   const addrLH = getLandmark(addressFrame, LandmarkId.LEFT_HIP);
   const addrRH = getLandmark(addressFrame, LandmarkId.RIGHT_HIP);
-  const addrNose = getLandmark(addressFrame, LandmarkId.NOSE);
-  const currentNose = getLandmark(frame, LandmarkId.NOSE);
 
   // 1. Shoulder & Pelvis Turn (Calibrated relative to address baseline)
   let shoulderTurn = 0;
@@ -150,14 +208,24 @@ export function extractPhaseKinematics(
   const addrSpine = computeSpineInclination(addressFrame, viewAngle);
   const spineAngleDelta = Math.round((spineInclination - addrSpine) * 10) / 10;
 
-  // 3. Knee Flexion (Lead leg)
+  // 3. Knee Kinematics (Lead & Trail)
   const leadHip = isRightHanded ? lh : rh;
   const leadKnee = isRightHanded ? lk : rk;
   const leadAnkle = isRightHanded ? la : ra;
-  let kneeFlex = 160;
+  const trailHip = isRightHanded ? rh : lh;
+  const trailKnee = isRightHanded ? rk : lk;
+  const trailAnkle = isRightHanded ? ra : la;
+
+  let leadKneeFlexionDeg = 160;
+  let trailKneeFlexionDeg = 160;
+  let kneeFlex = 20;
+
   if (leadHip && leadKnee && leadAnkle) {
-    const rawKneeAngle = interiorAngle(leadHip, leadKnee, leadAnkle);
-    kneeFlex = Math.round(180 - rawKneeAngle); // Flexion from straight (0° = straight)
+    leadKneeFlexionDeg = Math.round(interiorAngle(leadHip, leadKnee, leadAnkle));
+    kneeFlex = Math.round(180 - leadKneeFlexionDeg); // Backwards compatible knee flex angle
+  }
+  if (trailHip && trailKnee && trailAnkle) {
+    trailKneeFlexionDeg = Math.round(interiorAngle(trailHip, trailKnee, trailAnkle));
   }
 
   // 4. Lead Arm & Elbow Angle
@@ -172,16 +240,25 @@ export function extractPhaseKinematics(
     leadElbowAngle = Math.round(interiorAngle(leadShoulder, leadElbow, leadWrist));
   }
 
-  // 5. Lateral Head Sway (Target Line relative shift in mm or stance ratio)
+  // 5. 3D Head Motion & True Cranial Center
+  const addrHeadCenter = getCranialCenter(addressFrame);
+  const currHeadCenter = getCranialCenter(frame);
+  const headOrientation = computeHeadRotation(frame, isRightHanded);
+
   let lateralHeadSway = 0;
+  let headVerticalDip = 0;
   let stanceWidth = 0.5;
   if (la && ra) {
     stanceWidth = Math.abs(ra.x - la.x) || 0.5;
   }
-  if (addrNose && currentNose) {
+  if (addrHeadCenter && currHeadCenter) {
     // Normalised to stance width percentage
-    const rawShift = currentNose.x - addrNose.x;
+    const rawShift = currHeadCenter.x - addrHeadCenter.x;
     lateralHeadSway = Math.round((rawShift / stanceWidth) * 100);
+
+    // Vertical displacement (+ = downward dip/compression, - = upward lift)
+    const rawDip = currHeadCenter.y - addrHeadCenter.y;
+    headVerticalDip = Math.round((rawDip / stanceWidth) * 100);
   }
 
   // 6. Lateral Pelvis Shift
@@ -212,6 +289,11 @@ export function extractPhaseKinematics(
     kneeFlex,
     leadArmAngle,
     leadElbowAngle,
+    headRotationDeg: headOrientation.yawDeg,
+    headTiltDeg: headOrientation.tiltDeg,
+    headVerticalDip,
+    leadKneeFlexionDeg,
+    trailKneeFlexionDeg,
     lateralHeadSway,
     lateralPelvisShift,
     pelvisThrust

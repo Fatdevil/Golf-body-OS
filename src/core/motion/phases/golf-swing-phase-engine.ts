@@ -317,6 +317,9 @@ export class GolfSwingPhaseEngine {
 
   /**
    * P2: Takeaway — shaft parallel in backswing (hands around waist height).
+  /**
+   * P2: Takeaway — shaft parallel in backswing.
+   * Kinematic condition: Hands at hip/waist elevation and thoracic turn loaded (~18°–35°).
    */
   private findSubPhaseP2(
     handTrajectory: { frameIndex: number; x: number; y: number }[],
@@ -324,48 +327,108 @@ export class GolfSwingPhaseEngine {
     p1Idx: number,
     p4Idx: number
   ): number {
-    const range = p4Idx - p1Idx;
-    if (range <= 2) return Math.min(frames.length - 1, p1Idx + 1);
+    const minIdx = p1Idx + 1;
+    const maxIdx = p4Idx - 2;
+    if (minIdx >= maxIdx) return Math.min(frames.length - 1, p1Idx + 1);
 
-    // Target is around 30% of the backswing duration
-    const targetIdx = p1Idx + Math.max(1, Math.round(range * 0.30));
-    return targetIdx;
+    let bestIdx = minIdx;
+    let minDiff = Infinity;
+
+    for (let i = minIdx; i <= maxIdx; i++) {
+      const frame = frames[i];
+      const lh = getLandmark(frame, LandmarkId.LEFT_HIP);
+      const rh = getLandmark(frame, LandmarkId.RIGHT_HIP);
+      const ls = getLandmark(frame, LandmarkId.LEFT_SHOULDER);
+      const rs = getLandmark(frame, LandmarkId.RIGHT_SHOULDER);
+
+      const hipY = (lh && rh) ? (lh.y + rh.y) / 2 : 0.50;
+      const turn = (ls && rs) ? computeTransverseTurn(ls, rs, this.isRightHanded) : 25;
+
+      // Distance from hands to hip elevation
+      const handDistToHip = Math.abs(handTrajectory[i].y - hipY);
+      // Turn proximity to classic takeaway (22°)
+      const turnPenalty = Math.abs(turn - 22) / 45;
+
+      const score = handDistToHip + turnPenalty * 0.15;
+      if (score < minDiff) {
+        minDiff = score;
+        bestIdx = i;
+      }
+    }
+
+    return bestIdx;
   }
 
   /**
    * P3: Lead Arm Parallel in backswing.
+   * Kinematic condition: Lead arm vector is horizontal to the ground (lead wrist elevation matches lead shoulder).
    */
   private findSubPhaseP3(
     frames: PoseFrame[],
     p2Idx: number,
     p4Idx: number
   ): number {
-    const range = p4Idx - p2Idx;
-    if (range <= 2) return Math.min(frames.length - 1, p2Idx + 1);
+    const minIdx = p2Idx + 1;
+    const maxIdx = p4Idx - 1;
+    if (minIdx >= maxIdx) return Math.min(frames.length - 1, p2Idx + 1);
 
-    // Target is around 65% of the backswing duration
-    const targetIdx = p2Idx + Math.max(1, Math.round(range * 0.55));
-    return targetIdx;
+    let bestIdx = minIdx;
+    let minArmSlope = Infinity;
+
+    for (let i = minIdx; i <= maxIdx; i++) {
+      const frame = frames[i];
+      const leadShoulder = getLandmark(frame, this.isRightHanded ? LandmarkId.LEFT_SHOULDER : LandmarkId.RIGHT_SHOULDER);
+      const leadWrist = getLandmark(frame, this.isRightHanded ? LandmarkId.LEFT_WRIST : LandmarkId.RIGHT_WRIST);
+
+      if (leadShoulder && leadWrist) {
+        // Arm slope vs horizontal: when lead arm is horizontal, dy is minimal
+        const dy = Math.abs(leadWrist.y - leadShoulder.y);
+        if (dy < minArmSlope) {
+          minArmSlope = dy;
+          bestIdx = i;
+        }
+      }
+    }
+
+    return bestIdx;
   }
 
   /**
-   * P5: Lead Arm Parallel in downswing (Shallowing).
+   * P5: Shallowing — Lead Arm Parallel in downswing.
+   * Kinematic condition: Lead arm is horizontal to ground during rapid downswing descent.
    */
   private findSubPhaseP5(
     frames: PoseFrame[],
     p4Idx: number,
     p7Idx: number
   ): number {
-    const range = p7Idx - p4Idx;
-    if (range <= 2) return Math.min(frames.length - 1, p4Idx + 1);
+    const minIdx = p4Idx + 1;
+    const maxIdx = p7Idx - 2;
+    if (minIdx >= maxIdx) return Math.min(frames.length - 1, p4Idx + 1);
 
-    // P5 occurs early in downswing (~35% of downswing)
-    const targetIdx = p4Idx + Math.max(1, Math.round(range * 0.35));
-    return targetIdx;
+    let bestIdx = minIdx;
+    let minArmSlope = Infinity;
+
+    for (let i = minIdx; i <= maxIdx; i++) {
+      const frame = frames[i];
+      const leadShoulder = getLandmark(frame, this.isRightHanded ? LandmarkId.LEFT_SHOULDER : LandmarkId.RIGHT_SHOULDER);
+      const leadWrist = getLandmark(frame, this.isRightHanded ? LandmarkId.LEFT_WRIST : LandmarkId.RIGHT_WRIST);
+
+      if (leadShoulder && leadWrist) {
+        const dy = Math.abs(leadWrist.y - leadShoulder.y);
+        if (dy < minArmSlope) {
+          minArmSlope = dy;
+          bestIdx = i;
+        }
+      }
+    }
+
+    return bestIdx;
   }
 
   /**
-   * P6: Delivery (Shaft parallel before impact).
+   * P6: Delivery — shaft parallel before impact.
+   * Kinematic condition: Hands reach trail thigh elevation right before unhinging into impact.
    */
   private findSubPhaseP6(
     handTrajectory: { frameIndex: number; x: number; y: number }[],
@@ -373,16 +436,36 @@ export class GolfSwingPhaseEngine {
     p5Idx: number,
     p7Idx: number
   ): number {
-    const range = p7Idx - p5Idx;
-    if (range <= 2) return Math.min(frames.length - 1, p5Idx + 1);
+    const margin = p7Idx - p5Idx >= 6 ? Math.max(2, Math.round((p7Idx - p5Idx) * 0.15)) : 1;
+    const minIdx = p5Idx + 1;
+    const maxIdx = p7Idx - margin;
+    if (minIdx >= maxIdx) return Math.max(minIdx, p7Idx - 1);
 
-    // Delivery is just prior to impact (~70% of downswing)
-    const targetIdx = p5Idx + Math.max(1, Math.round(range * 0.60));
-    return targetIdx;
+    let bestIdx = minIdx;
+    let minDiff = Infinity;
+
+    for (let i = minIdx; i <= maxIdx; i++) {
+      const frame = frames[i];
+      const trailHip = getLandmark(frame, this.isRightHanded ? LandmarkId.RIGHT_HIP : LandmarkId.LEFT_HIP);
+      const trailKnee = getLandmark(frame, this.isRightHanded ? LandmarkId.RIGHT_KNEE : LandmarkId.LEFT_KNEE);
+
+      const thighTargetY = (trailHip && trailKnee)
+        ? trailHip.y + (trailKnee.y - trailHip.y) * 0.10
+        : 0.50;
+
+      const diff = Math.abs(handTrajectory[i].y - thighTargetY);
+      if (diff < minDiff) {
+        minDiff = diff;
+        bestIdx = i;
+      }
+    }
+
+    return bestIdx;
   }
 
   /**
-   * P8: Release (Shaft parallel after impact).
+   * P8: Release — shaft parallel after impact.
+   * Kinematic condition: Hands rising to lead hip/thigh height with arms extended.
    */
   private findSubPhaseP8(
     handTrajectory: { frameIndex: number; x: number; y: number }[],
@@ -390,27 +473,63 @@ export class GolfSwingPhaseEngine {
     p7Idx: number,
     p10Idx: number
   ): number {
-    const range = p10Idx - p7Idx;
-    if (range <= 2) return Math.min(frames.length - 1, p7Idx + 1);
+    const margin = p10Idx - p7Idx >= 8 ? Math.max(2, Math.round((p10Idx - p7Idx) * 0.08)) : 1;
+    const minIdx = p7Idx + margin;
+    const maxIdx = p10Idx - 2;
+    if (minIdx >= maxIdx) return Math.min(frames.length - 1, p7Idx + 1);
 
-    // Immediately after impact (~25% of follow-through)
-    const targetIdx = p7Idx + Math.max(1, Math.round(range * 0.25));
-    return targetIdx;
+    let bestIdx = minIdx;
+    let minDiff = Infinity;
+
+    for (let i = minIdx; i <= maxIdx; i++) {
+      const frame = frames[i];
+      const leadHip = getLandmark(frame, this.isRightHanded ? LandmarkId.LEFT_HIP : LandmarkId.RIGHT_HIP);
+      const leadKnee = getLandmark(frame, this.isRightHanded ? LandmarkId.LEFT_KNEE : LandmarkId.RIGHT_KNEE);
+
+      const targetY = (leadHip && leadKnee)
+        ? leadHip.y + (leadKnee.y - leadHip.y) * 0.15
+        : 0.52;
+
+      const diff = Math.abs(handTrajectory[i].y - targetY);
+      if (diff < minDiff) {
+        minDiff = diff;
+        bestIdx = i;
+      }
+    }
+
+    return bestIdx;
   }
 
   /**
-   * P9: Re-hinge (Trail arm parallel in follow-through).
+   * P9: Re-hinge — trail arm parallel in follow-through.
+   * Kinematic condition: Trail arm (trail shoulder to trail wrist) is horizontal to the ground.
    */
   private findSubPhaseP9(
     frames: PoseFrame[],
     p8Idx: number,
     p10Idx: number
   ): number {
-    const range = p10Idx - p8Idx;
-    if (range <= 2) return Math.min(frames.length - 1, p8Idx + 1);
+    const minIdx = p8Idx + 1;
+    const maxIdx = p10Idx - 1;
+    if (minIdx >= maxIdx) return Math.min(frames.length - 1, p8Idx + 1);
 
-    // Midway through follow-through (~55% from P8 to P10)
-    const targetIdx = p8Idx + Math.max(1, Math.round(range * 0.55));
-    return targetIdx;
+    let bestIdx = minIdx;
+    let minArmSlope = Infinity;
+
+    for (let i = minIdx; i <= maxIdx; i++) {
+      const frame = frames[i];
+      const trailShoulder = getLandmark(frame, this.isRightHanded ? LandmarkId.RIGHT_SHOULDER : LandmarkId.LEFT_SHOULDER);
+      const trailWrist = getLandmark(frame, this.isRightHanded ? LandmarkId.RIGHT_WRIST : LandmarkId.LEFT_WRIST);
+
+      if (trailShoulder && trailWrist) {
+        const dy = Math.abs(trailWrist.y - trailShoulder.y);
+        if (dy < minArmSlope) {
+          minArmSlope = dy;
+          bestIdx = i;
+        }
+      }
+    }
+
+    return bestIdx;
   }
 }

@@ -11,6 +11,7 @@ import { CameraViewAngle } from '../types/golf-swing';
 import { CoachingPhraseKey } from './i18n/locales';
 import { generate240FpsSwingSequence } from '../data/sample-240fps-swing';
 import { getLandmark, extractPhaseKinematics } from '../metrics/golf-swing-metrics';
+import { mirrorPoseFrame } from '../coordinates/pose-mirror';
 
 export type GhostCheckpointId =
   | 'P1_ADDRESS'
@@ -73,7 +74,7 @@ export const GHOST_CHECKPOINTS: GhostCheckpointDef[] = [
     frameIndex240Fps: 180,
     cueKey: 'GHOST_CUE_P3',
     descriptionEn: 'Left arm parallel to ground, 90° wrist hinge set, trail arm folding.',
-    descriptionSv: 'Vänster arm parallell med marken, handlederna vinklade 90°, höger armbåge börjar vika sig.',
+    descriptionSv: 'Främre arm parallell med marken, handlederna vinklade 90°, bakre armbåge börjar vika sig.',
     targetShoulderTurnDeg: 68,
     targetHipTurnDeg: 32,
     toleranceDeg: 10
@@ -83,10 +84,10 @@ export const GHOST_CHECKPOINTS: GhostCheckpointDef[] = [
     name: 'P4 - Top of Backswing',
     nameSv: 'P4 - Toppen av Baksvingen',
     pIndex: 4,
-    frameIndex240Fps: 240,
+    frameIndex240Fps: 230,
     cueKey: 'GHOST_CUE_P4',
     descriptionEn: 'Full 90° shoulder coil, 45° hip turn, trail elbow in waiter-tray position.',
-    descriptionSv: 'Full 90° axelrotation, 45° höftvridning, höger armbåge i kypargrepp.',
+    descriptionSv: 'Full 90° axelrotation, 45° höftvridning, bakre armbåge i kypargrepp.',
     targetShoulderTurnDeg: 90,
     targetHipTurnDeg: 45,
     toleranceDeg: 10
@@ -114,7 +115,7 @@ export const GHOST_CHECKPOINTS: GhostCheckpointDef[] = [
     descriptionEn: 'Shaft parallel to ground and target line, hips beginning to clear open.',
     descriptionSv: 'Klubbskaft parallellt med marken mot målet, höfterna öppnar upp.',
     targetShoulderTurnDeg: 28,
-    targetHipTurnDeg: 16,
+    targetHipTurnDeg: 28,
     toleranceDeg: 12
   },
   {
@@ -179,15 +180,23 @@ const PRO_SEQUENCE_CACHE: Record<CameraViewAngle, PoseFrame[]> = {
 
 /**
  * Returns the exact Pro Ghost reference PoseFrame for a given checkpoint and angle.
+ * Supports both right-handed and left-handed golfers, as well as mirrored/video camera views.
  */
 export function getProCheckpointPoseFrame(
   checkpointId: GhostCheckpointId,
-  viewAngle: CameraViewAngle = 'DOWN_THE_LINE'
+  viewAngle: CameraViewAngle = 'DOWN_THE_LINE',
+  isRightHanded: boolean = true,
+  isMirroredView: boolean = true
 ): PoseFrame {
   const def = GHOST_CHECKPOINTS.find(c => c.id === checkpointId) ?? GHOST_CHECKPOINTS[0];
   const seq = PRO_SEQUENCE_CACHE[viewAngle] || PRO_SEQUENCE_CACHE.DOWN_THE_LINE;
   const frameIdx = Math.min(seq.length - 1, Math.max(0, def.frameIndex240Fps));
-  return seq[frameIdx];
+  const baseFrame = seq[frameIdx];
+
+  // Base template is right-handed in mirrored (selfie) view.
+  // Flip when player is left-handed in selfie, or right-handed in unmirrored video.
+  const shouldFlip = isRightHanded !== isMirroredView;
+  return shouldFlip ? mirrorPoseFrame(baseFrame) : baseFrame;
 }
 
 export interface GhostMatchResult {
@@ -212,9 +221,10 @@ export function evaluateGhostPoseMatch(
   targetCheckpoint: GhostCheckpointDef,
   addressBaselineFrame: PoseFrame,
   viewAngle: CameraViewAngle = 'DOWN_THE_LINE',
-  isRightHanded: boolean = true
+  isRightHanded: boolean = true,
+  isMirroredView: boolean = true
 ): GhostMatchResult {
-  const proFrame = getProCheckpointPoseFrame(targetCheckpoint.id, viewAngle);
+  const proFrame = getProCheckpointPoseFrame(targetCheckpoint.id, viewAngle, isRightHanded, isMirroredView);
 
   // Key landmarks for golf posture comparison
   const compareLandmarks = [
@@ -228,7 +238,9 @@ export function evaluateGhostPoseMatch(
     { id: LandmarkId.RIGHT_HIP, weight: 1.0 },
     { id: LandmarkId.LEFT_KNEE, weight: 0.9 },
     { id: LandmarkId.RIGHT_KNEE, weight: 0.9 },
-    { id: LandmarkId.NOSE, weight: 0.8 }
+    { id: LandmarkId.NOSE, weight: 0.5 },
+    { id: LandmarkId.LEFT_EAR, weight: 0.4 },
+    { id: LandmarkId.RIGHT_EAR, weight: 0.4 }
   ];
 
   const playerLH = getLandmark(playerFrame, LandmarkId.LEFT_HIP);
@@ -263,8 +275,9 @@ export function evaluateGhostPoseMatch(
   const landmarkScore = Math.max(0, 100 - avgDistance * 380);
 
   // Position-specific kinematic and fault detection
-  const playerLW = getLandmark(playerFrame, LandmarkId.LEFT_WRIST);
-  const proLW = getLandmark(proFrame, LandmarkId.LEFT_WRIST);
+  const leadWristId = isRightHanded ? LandmarkId.LEFT_WRIST : LandmarkId.RIGHT_WRIST;
+  const playerLW = getLandmark(playerFrame, leadWristId);
+  const proLW = getLandmark(proFrame, leadWristId);
 
   let primaryCue: CoachingPhraseKey | null = null;
   let statusEn = 'Aligning with Ghost...';
@@ -284,9 +297,11 @@ export function evaluateGhostPoseMatch(
     const addrLH = getLandmark(addressBaselineFrame, LandmarkId.LEFT_HIP);
     const addrRH = getLandmark(addressBaselineFrame, LandmarkId.RIGHT_HIP);
     if (addrLH && addrRH && playerLH && playerRH) {
-      const addrHipX = Math.max(addrLH.x, addrRH.x);
-      const currHipX = Math.max(playerLH.x, playerRH.x);
-      if (addrHipX - currHipX > 0.035) {
+      const isButtOnRight = isRightHanded;
+      const addrHipX = isButtOnRight ? Math.max(addrLH.x, addrRH.x) : Math.min(addrLH.x, addrRH.x);
+      const currHipX = isButtOnRight ? Math.max(playerLH.x, playerRH.x) : Math.min(playerLH.x, playerRH.x);
+      const pelvisThrust = isButtOnRight ? (addrHipX - currHipX) : (currHipX - addrHipX);
+      if (pelvisThrust > 0.035) {
         primaryCue = 'GHOST_TUSH_LINE_HOLD';
         statusEn = 'Keep glutes back on Tush Line!';
         statusSv = 'Håll kvar sätet mot Tush Line!';
