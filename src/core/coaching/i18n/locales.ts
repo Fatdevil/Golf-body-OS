@@ -51,7 +51,23 @@ export type CoachingPhraseKey =
   | 'BRIEFING_LISTEN'
   | 'SCREENING_WELCOME'
   | 'SCREENING_STEP_TRANSITION'
-  | 'SCREENING_ALL_COMPLETE';
+  | 'SCREENING_ALL_COMPLETE'
+  | 'GHOST_CUE_P1'
+  | 'GHOST_CUE_P2'
+  | 'GHOST_CUE_P3'
+  | 'GHOST_CUE_P4'
+  | 'GHOST_CUE_P5'
+  | 'GHOST_CUE_P6'
+  | 'GHOST_CUE_P7'
+  | 'GHOST_CUE_P8'
+  | 'GHOST_CUE_P9'
+  | 'GHOST_CUE_P10'
+  | 'GHOST_LOCKED_IN'
+  | 'GHOST_HOLD_POSITION'
+  | 'GHOST_ROTATE_MORE'
+  | 'GHOST_TUSH_LINE_HOLD'
+  | 'GHOST_LOWER_TRAIL_ELBOW'
+  | 'GHOST_TRAINER_COMPLETE';
 
 export const LOCALES: Record<SupportedLanguage, Record<CoachingPhraseKey, string>> = {
   'en-US': {
@@ -99,7 +115,23 @@ export const LOCALES: Record<SupportedLanguage, Record<CoachingPhraseKey, string
     BRIEFING_LISTEN: 'Listen to the briefing...',
     SCREENING_WELCOME: 'Welcome to your full Golf Body Screening. We start with the hip hinge in side view.',
     SCREENING_STEP_TRANSITION: 'Great job! Hip hinge complete. Now face the camera squarely for test two: thoracic rotation.',
-    SCREENING_ALL_COMPLETE: 'All assessments complete! Compiling your full Golf Body Score.'
+    SCREENING_ALL_COMPLETE: 'All assessments complete! Compiling your full Golf Body Score.',
+    GHOST_CUE_P1: 'Position 1: Address. Soften knees, hinge at hips, arms hanging relaxed.',
+    GHOST_CUE_P2: 'Position 2: Takeaway. Club shaft parallel to ground, wide chest turn.',
+    GHOST_CUE_P3: 'Position 3: Halfway back. Lead arm parallel to ground, hinge wrists ninety degrees.',
+    GHOST_CUE_P4: 'Position 4: Top of backswing. Full shoulder turn, trail elbow in waiter tray position.',
+    GHOST_CUE_P5: 'Position 5: Shallowing into the slot. Drop hands, keep wrist hinge.',
+    GHOST_CUE_P6: 'Position 6: Delivery. Shaft parallel to target line, hips clearing open.',
+    GHOST_CUE_P7: 'Position 7: Impact. Hands pressing forward, hips forty-five degrees open, head behind ball.',
+    GHOST_CUE_P8: 'Position 8: Extension. Arms fully extended down the target line.',
+    GHOST_CUE_P9: 'Position 9: Follow-through. Chest rotating up and through.',
+    GHOST_CUE_P10: 'Position 10: Balanced tour finish. Tall spine, weight on lead heel, belt facing target.',
+    GHOST_LOCKED_IN: 'Target locked! Hold for two seconds.',
+    GHOST_HOLD_POSITION: 'Hold steady...',
+    GHOST_ROTATE_MORE: 'Rotate your chest more to match Tiger.',
+    GHOST_TUSH_LINE_HOLD: 'Keep your hips back on the Tush Line.',
+    GHOST_LOWER_TRAIL_ELBOW: 'Keep your trail elbow tucked.',
+    GHOST_TRAINER_COMPLETE: 'Outstanding! All ten positions completed with tour precision.'
   },
   'sv-SE': {
     STEP_INTO_FRAME: 'Kliv in i bild',
@@ -146,7 +178,23 @@ export const LOCALES: Record<SupportedLanguage, Record<CoachingPhraseKey, string
     BRIEFING_LISTEN: 'Lyssna på genomgången...',
     SCREENING_WELCOME: 'Välkommen till din kompletta Golf Body Screening. Vi börjar med höftfällning i sidovy.',
     SCREENING_STEP_TRANSITION: 'Bra jobbat! Höftfällningen är klar. Vänd dig nu rakt mot kameran för test två: bröstryggsrotation.',
-    SCREENING_ALL_COMPLETE: 'Alla tester klara! Sammanställer din fullständiga Golf Body Score.'
+    SCREENING_ALL_COMPLETE: 'Alla tester klara! Sammanställer din fullständiga Golf Body Score.',
+    GHOST_CUE_P1: 'Position 1: Adress. Mjuka upp knäna, fäll från höften och låt armarna hänga avspänt.',
+    GHOST_CUE_P2: 'Position 2: Takeaway. Klubbskaft parallellt med marken, bred axelvridning.',
+    GHOST_CUE_P3: 'Position 3: Halv baksving. Främre armen parallell med marken, vinkla handlederna nittio grader.',
+    GHOST_CUE_P4: 'Position 4: Toppen av baksvingen. Full axelvridning, höger armbåge i kypargrepp.',
+    GHOST_CUE_P5: 'Position 5: The Slot. Droppa händerna i svingplanet och behåll handledsvinkeln.',
+    GHOST_CUE_P6: 'Position 6: Delivery. Klubbskaftet parallellt med mållinjen, öppna upp höfterna.',
+    GHOST_CUE_P7: 'Position 7: Impact! Handledspress framåt, höfterna öppna fyrtiofem grader, huvudet bakom bollen.',
+    GHOST_CUE_P8: 'Position 8: Extension. Sträck armarna rakt ut längs mållinjen.',
+    GHOST_CUE_P9: 'Position 9: Genomsving. Rotera bröstkorgen uppåt och genom träffen.',
+    GHOST_CUE_P10: 'Position 10: Tour Finish! Stolt hållning, all vikt på främre hälen och bältet mot målet.',
+    GHOST_LOCKED_IN: 'Position låst! Håll i två sekunder.',
+    GHOST_HOLD_POSITION: 'Håll kvar...',
+    GHOST_ROTATE_MORE: 'Rotera bröstkorgen mer för att matcha Tiger.',
+    GHOST_TUSH_LINE_HOLD: 'Håll kvar sätet mot Tush Line.',
+    GHOST_LOWER_TRAIL_ELBOW: 'Håll in bakre armbågen närmare kroppen.',
+    GHOST_TRAINER_COMPLETE: 'Grymt jobbat! Alla tio positioner genomförda med tourprecision.'
   }
 };
 

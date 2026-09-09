@@ -16,7 +16,12 @@ import {
   ArrowRight,
   Layers,
   Sparkles,
-  Dumbbell
+  Dumbbell,
+  Volume2,
+  VolumeX,
+  Target,
+  Award,
+  Check
 } from 'lucide-react';
 import { PoseFrame } from '../../../../src/core/types/pose-frame';
 import { LandmarkId } from '../../../../src/core/types/landmark';
@@ -35,8 +40,16 @@ import {
   SampleSwingType
 } from '../../../../src/core/data/sample-240fps-swing';
 import { GolfBodyScoreResult } from '../../../../src/core/metrics/golf-body-score';
-import { SupportedLanguage } from '../../../../src/core/coaching/i18n/locales';
+import { SupportedLanguage, getPhrase } from '../../../../src/core/coaching/i18n/locales';
 import { getLandmark, extractPhaseKinematics } from '../../../../src/core/metrics/golf-swing-metrics';
+import {
+  GHOST_CHECKPOINTS,
+  GhostCheckpointId,
+  getProCheckpointPoseFrame,
+  evaluateGhostPoseMatch,
+  GhostMatchResult
+} from '../../../../src/core/coaching/ghost-trainer-engine';
+import { AudioCoachService } from '../../../../src/core/coaching/audio-coach';
 
 export interface SwingAnalysisViewProps {
   currentBodyScore: GolfBodyScoreResult | null;
@@ -72,6 +85,30 @@ export default function SwingAnalysisView({
   const [showSkeleton, setShowSkeleton] = useState<boolean>(true);
   const [showAngles, setShowAngles] = useState<boolean>(true);
   const [showTrajectory, setShowTrajectory] = useState<boolean>(true);
+  const [showGhost, setShowGhost] = useState<boolean>(true);
+
+  // Ghost Mode & Trainer State
+  const [trainerMode, setTrainerMode] = useState<boolean>(false);
+  const [activeCheckpointId, setActiveCheckpointId] = useState<GhostCheckpointId>('P1_ADDRESS');
+  const [autoAdvance, setAutoAdvance] = useState<boolean>(true);
+  const [audioVoiceEnabled, setAudioVoiceEnabled] = useState<boolean>(true);
+  const [dwellHoldProgress, setDwellHoldProgress] = useState<number>(0); // 0 to 100%
+  const [completedCheckpoints, setCompletedCheckpoints] = useState<Set<GhostCheckpointId>>(new Set());
+
+  const audioCoachRef = useRef<AudioCoachService | null>(null);
+  if (!audioCoachRef.current) {
+    audioCoachRef.current = new AudioCoachService({
+      defaultLanguage: language,
+      mode: 'FULL'
+    });
+  }
+
+  useEffect(() => {
+    if (audioCoachRef.current) {
+      audioCoachRef.current.setLanguage(language);
+      audioCoachRef.current.setMuted(!audioVoiceEnabled);
+    }
+  }, [language, audioVoiceEnabled]);
 
   // Canvas refs
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -245,6 +282,87 @@ export default function SwingAnalysisView({
       isRightHanded
     );
   }, [currentFrame, frames, activePhase, viewAngle, isRightHanded]);
+
+  // Active Ghost Checkpoint Definition
+  const currentCheckpointDef = useMemo(() => {
+    return GHOST_CHECKPOINTS.find((c) => c.id === activeCheckpointId) || GHOST_CHECKPOINTS[0];
+  }, [activeCheckpointId]);
+
+  // Real-time evaluation against Ghost Target Checkpoint
+  const ghostMatchResult = useMemo<GhostMatchResult | null>(() => {
+    if (!currentFrame || !frames[0]) return null;
+    return evaluateGhostPoseMatch(
+      currentFrame,
+      currentCheckpointDef,
+      frames[0],
+      viewAngle,
+      isRightHanded
+    );
+  }, [currentFrame, currentCheckpointDef, frames, viewAngle, isRightHanded]);
+
+  // Checkpoint selection handler
+  const handleSelectCheckpoint = (cpId: GhostCheckpointId) => {
+    setIsPlaying(false);
+    setActiveCheckpointId(cpId);
+    const cp = GHOST_CHECKPOINTS.find((c) => c.id === cpId);
+    if (cp) {
+      setCurrentFrameIndex(cp.frameIndex240Fps);
+      if (audioVoiceEnabled && audioCoachRef.current) {
+        audioCoachRef.current.speak(cp.cueKey, 'HIGH');
+      }
+    }
+  };
+
+  // Dwell timer for position lock & auto-advance
+  const lockStartTimeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!trainerMode) return;
+
+    let intervalId: any = null;
+    if (ghostMatchResult?.isLocked) {
+      if (!lockStartTimeRef.current) {
+        lockStartTimeRef.current = Date.now();
+      }
+      intervalId = setInterval(() => {
+        if (!lockStartTimeRef.current) return;
+        const elapsed = Date.now() - lockStartTimeRef.current;
+        const progress = Math.min(100, Math.round((elapsed / 1500) * 100));
+        setDwellHoldProgress(progress);
+
+        if (elapsed >= 1500) {
+          clearInterval(intervalId);
+          audioCoachRef.current?.playSuccessChime();
+          setCompletedCheckpoints((prev) => new Set([...prev, activeCheckpointId]));
+
+          if (autoAdvance) {
+            const currentIdx = GHOST_CHECKPOINTS.findIndex((c) => c.id === activeCheckpointId);
+            if (currentIdx < GHOST_CHECKPOINTS.length - 1) {
+              const nextCp = GHOST_CHECKPOINTS[currentIdx + 1];
+              setActiveCheckpointId(nextCp.id);
+              setCurrentFrameIndex(nextCp.frameIndex240Fps);
+              lockStartTimeRef.current = null;
+              setDwellHoldProgress(0);
+              if (audioVoiceEnabled && audioCoachRef.current) {
+                audioCoachRef.current.speak(nextCp.cueKey, 'HIGH');
+              }
+            } else {
+              if (audioVoiceEnabled && audioCoachRef.current) {
+                audioCoachRef.current.speak('GHOST_TRAINER_COMPLETE', 'HIGH');
+              }
+            }
+          }
+        }
+      }, 50);
+    } else {
+      lockStartTimeRef.current = null;
+      setDwellHoldProgress(0);
+    }
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [trainerMode, ghostMatchResult?.isLocked, activeCheckpointId, autoAdvance, audioVoiceEnabled]);
 
   // Draw on canvas
   useEffect(() => {
@@ -428,24 +546,83 @@ export default function SwingAnalysisView({
       }
     }
 
+    const POSE_CONNECTIONS = [
+      [LandmarkId.LEFT_SHOULDER, LandmarkId.RIGHT_SHOULDER],
+      [LandmarkId.LEFT_SHOULDER, LandmarkId.LEFT_HIP],
+      [LandmarkId.RIGHT_SHOULDER, LandmarkId.RIGHT_HIP],
+      [LandmarkId.LEFT_HIP, LandmarkId.RIGHT_HIP],
+      [LandmarkId.LEFT_SHOULDER, LandmarkId.LEFT_ELBOW],
+      [LandmarkId.LEFT_ELBOW, LandmarkId.LEFT_WRIST],
+      [LandmarkId.RIGHT_SHOULDER, LandmarkId.RIGHT_ELBOW],
+      [LandmarkId.RIGHT_ELBOW, LandmarkId.RIGHT_WRIST],
+      [LandmarkId.LEFT_HIP, LandmarkId.LEFT_KNEE],
+      [LandmarkId.LEFT_KNEE, LandmarkId.LEFT_ANKLE],
+      [LandmarkId.RIGHT_HIP, LandmarkId.RIGHT_KNEE],
+      [LandmarkId.RIGHT_KNEE, LandmarkId.RIGHT_ANKLE]
+    ];
+
+    // 3.5 Draw Pro Ghost Skeleton (Tiger Woods 2000 Baseline)
+    if (showGhost) {
+      const ghostFrame = trainerMode
+        ? getProCheckpointPoseFrame(activeCheckpointId, viewAngle)
+        : getProCheckpointPoseFrame((activePhase as any) || 'P1_ADDRESS', viewAngle);
+
+      if (ghostFrame && ghostFrame.landmarks) {
+        const isMatched = ghostMatchResult?.isLocked;
+        const ghostBoneColor = isMatched ? 'rgba(16, 185, 129, 0.70)' : 'rgba(255, 215, 0, 0.50)';
+        const ghostJointColor = isMatched ? '#34d399' : '#fbbf24';
+
+        ctx.save();
+        ctx.lineWidth = 3.5;
+        ctx.strokeStyle = ghostBoneColor;
+        ctx.setLineDash([5, 4]);
+
+        for (const [sId, eId] of POSE_CONNECTIONS) {
+          const p1 = getLandmark(ghostFrame, sId);
+          const p2 = getLandmark(ghostFrame, eId);
+          if (p1 && p2) {
+            ctx.beginPath();
+            ctx.moveTo(p1.x * width, p1.y * height);
+            ctx.lineTo(p2.x * width, p2.y * height);
+            ctx.stroke();
+          }
+        }
+        ctx.setLineDash([]);
+
+        // Ghost Joints
+        for (const lm of ghostFrame.landmarks) {
+          ctx.beginPath();
+          ctx.arc(lm.x * width, lm.y * height, 3.5, 0, 2 * Math.PI);
+          ctx.fillStyle = ghostJointColor;
+          ctx.fill();
+        }
+
+        // Ghost Head & Halo
+        const ghNose = getLandmark(ghostFrame, LandmarkId.NOSE);
+        if (ghNose) {
+          ctx.strokeStyle = isMatched ? 'rgba(16, 185, 129, 0.8)' : 'rgba(255, 215, 0, 0.7)';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(ghNose.x * width, ghNose.y * height, 13, 0, 2 * Math.PI);
+          ctx.stroke();
+
+          // Badge Label
+          ctx.fillStyle = isMatched ? '#34d399' : '#fbbf24';
+          ctx.font = 'bold 8.5px monospace';
+          ctx.fillText(
+            isMatched ? '✨ TIGER MATCHED' : '👻 TIGER GHOST',
+            ghNose.x * width - 36,
+            ghNose.y * height - 18
+          );
+        }
+
+        ctx.restore();
+      }
+    }
+
     // 4. Draw Skeleton
     if (showSkeleton && currentFrame.landmarks) {
       const lms = currentFrame.landmarks;
-
-      const POSE_CONNECTIONS = [
-        [LandmarkId.LEFT_SHOULDER, LandmarkId.RIGHT_SHOULDER],
-        [LandmarkId.LEFT_SHOULDER, LandmarkId.LEFT_HIP],
-        [LandmarkId.RIGHT_SHOULDER, LandmarkId.RIGHT_HIP],
-        [LandmarkId.LEFT_HIP, LandmarkId.RIGHT_HIP],
-        [LandmarkId.LEFT_SHOULDER, LandmarkId.LEFT_ELBOW],
-        [LandmarkId.LEFT_ELBOW, LandmarkId.LEFT_WRIST],
-        [LandmarkId.RIGHT_SHOULDER, LandmarkId.RIGHT_ELBOW],
-        [LandmarkId.RIGHT_ELBOW, LandmarkId.RIGHT_WRIST],
-        [LandmarkId.LEFT_HIP, LandmarkId.LEFT_KNEE],
-        [LandmarkId.LEFT_KNEE, LandmarkId.LEFT_ANKLE],
-        [LandmarkId.RIGHT_HIP, LandmarkId.RIGHT_KNEE],
-        [LandmarkId.RIGHT_KNEE, LandmarkId.RIGHT_ANKLE]
-      ];
 
       // Draw bones
       ctx.lineWidth = 4;
@@ -792,6 +969,10 @@ export default function SwingAnalysisView({
     showSkeleton,
     showAngles,
     showTrajectory,
+    showGhost,
+    trainerMode,
+    activeCheckpointId,
+    ghostMatchResult,
     frames,
     activePhase,
     activeIntFrame,
@@ -830,6 +1011,38 @@ export default function SwingAnalysisView({
 
         {/* Action Controls */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Mode Switcher: 240fps Analysis vs Tiger Ghost Trainer */}
+          <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 shadow-inner">
+            <button
+              onClick={() => {
+                setTrainerMode(false);
+                audioCoachRef.current?.cancel();
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                !trainerMode
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <span>🎬</span>
+              <span>{isSv ? '240 fps Analys' : '240 fps Studio'}</span>
+            </button>
+            <button
+              onClick={() => {
+                setTrainerMode(true);
+                handleSelectCheckpoint(activeCheckpointId);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                trainerMode
+                  ? 'bg-gradient-to-r from-amber-500 to-yellow-600 text-slate-950 font-black shadow-lg shadow-amber-500/30 ring-1 ring-amber-300'
+                  : 'text-amber-400 hover:text-white'
+              }`}
+            >
+              <span>👻</span>
+              <span>{isSv ? 'Tiger Ghost Trainer' : 'Tiger Ghost Trainer'}</span>
+            </button>
+          </div>
+
           {/* Sample Swings Selector */}
           <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
             <button
@@ -903,6 +1116,169 @@ export default function SwingAnalysisView({
         </div>
       </div>
 
+      {/* 1b. Dedicated Tiger Ghost Checkpoint Trainer Panel (Active when trainerMode is ON) */}
+      {trainerMode && (
+        <div className="bg-gradient-to-r from-slate-900 via-slate-900/95 to-slate-900 border-2 border-amber-500/40 p-4 rounded-2xl shadow-2xl flex flex-col gap-3 relative overflow-hidden">
+          {/* Subtle gold glow behind header */}
+          <div className="absolute top-0 right-0 w-80 h-32 bg-amber-500/10 blur-3xl pointer-events-none rounded-full" />
+
+          {/* Trainer Header: Status, Match Score & Audio Feedback */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center font-bold text-lg shadow-inner">
+                👻
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-black text-white">
+                    {isSv ? 'Tiger Woods 2000 Ghost Trainer' : 'Tiger Woods 2000 Ghost Trainer'}
+                  </h3>
+                  <span className="bg-amber-500/20 border border-amber-500/50 text-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Sparkles size={11} />
+                    {currentCheckpointDef.name}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 mt-0.5 font-medium">
+                  {isSv ? currentCheckpointDef.descriptionSv : currentCheckpointDef.descriptionEn}
+                </p>
+              </div>
+            </div>
+
+            {/* Match Gauge & Controls */}
+            <div className="flex items-center gap-2.5">
+              {/* Match Score Badge */}
+              <div
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition shadow-lg ${
+                  ghostMatchResult?.isLocked
+                    ? 'bg-emerald-950/80 border-emerald-500/80 text-emerald-300 shadow-emerald-500/20'
+                    : (ghostMatchResult?.matchScore ?? 0) >= 65
+                    ? 'bg-amber-950/80 border-amber-500/80 text-amber-300 shadow-amber-500/20'
+                    : 'bg-slate-950 border-slate-800 text-slate-400'
+                }`}
+              >
+                <Target size={16} className={ghostMatchResult?.isLocked ? 'text-emerald-400 animate-pulse' : 'text-amber-400'} />
+                <div className="flex flex-col items-start leading-none">
+                  <span className="text-[9px] uppercase tracking-wider font-semibold opacity-70">
+                    {isSv ? 'Matchning' : 'Match'}
+                  </span>
+                  <span className="text-sm font-black font-mono">
+                    {ghostMatchResult?.matchScore ?? 0}%
+                  </span>
+                </div>
+              </div>
+
+              {/* Dwell hold circular / bar progress */}
+              {dwellHoldProgress > 0 && (
+                <div className="flex flex-col items-center bg-slate-950 px-2.5 py-1 rounded-xl border border-emerald-500/50 text-emerald-400">
+                  <span className="text-[9px] font-bold uppercase tracking-wider">
+                    {isSv ? 'Låser...' : 'Locking...'}
+                  </span>
+                  <div className="w-16 bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1">
+                    <div
+                      className="bg-emerald-400 h-full transition-all duration-75"
+                      style={{ width: `${dwellHoldProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Audio Voice Guidance Toggle */}
+              <button
+                onClick={() => {
+                  setAudioVoiceEnabled((v) => !v);
+                  if (audioVoiceEnabled) audioCoachRef.current?.cancel();
+                }}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition ${
+                  audioVoiceEnabled
+                    ? 'bg-emerald-600/30 border-emerald-500/60 text-emerald-300'
+                    : 'bg-slate-800 border-slate-700 text-slate-400'
+                }`}
+                title={isSv ? 'Slå på/av röstguidning' : 'Toggle voice guidance'}
+              >
+                {audioVoiceEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
+                <span>{isSv ? 'Röst' : 'Voice'}</span>
+              </button>
+
+              {/* Auto-Advance Toggle */}
+              <button
+                onClick={() => setAutoAdvance((v) => !v)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition ${
+                  autoAdvance
+                    ? 'bg-amber-600/30 border-amber-500/60 text-amber-300'
+                    : 'bg-slate-800 border-slate-700 text-slate-400'
+                }`}
+                title={isSv ? 'Hoppa automatiskt till nästa position vid godkänd låsning' : 'Auto advance to next position on lock'}
+              >
+                <span>⚡</span>
+                <span>Auto</span>
+              </button>
+
+              {/* Re-listen prompt button */}
+              <button
+                onClick={() => {
+                  if (audioCoachRef.current) {
+                    audioCoachRef.current.speak(currentCheckpointDef.cueKey, 'HIGH');
+                  }
+                }}
+                className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+                title={isSv ? 'Lyssna på instruktionen igen' : 'Replay cue'}
+              >
+                <RotateCcw size={14} />
+              </button>
+            </div>
+          </div>
+
+          {/* Advice Banner */}
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-950/80 px-3 py-2 rounded-xl border border-slate-800">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-amber-400 font-bold">💡 {isSv ? 'Instruktion:' : 'Instruction:'}</span>
+              <span className="text-slate-200">
+                {isSv ? ghostMatchResult?.statusMessageSv : ghostMatchResult?.statusMessageEn}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400">
+              <span>
+                {isSv ? 'Mål axlar:' : 'Target Shoulders:'}{' '}
+                <strong className="text-amber-400">{currentCheckpointDef.targetShoulderTurnDeg}°</strong>
+              </span>
+              <span>
+                {isSv ? 'Höfter:' : 'Hips:'}{' '}
+                <strong className="text-emerald-400">{currentCheckpointDef.targetHipTurnDeg}°</strong>
+              </span>
+            </div>
+          </div>
+
+          {/* 10 Checkpoints Navigation Strip */}
+          <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5 pt-1">
+            {GHOST_CHECKPOINTS.map((cp) => {
+              const isCurrent = cp.id === activeCheckpointId;
+              const isDone = completedCheckpoints.has(cp.id);
+              return (
+                <button
+                  key={cp.id}
+                  onClick={() => handleSelectCheckpoint(cp.id)}
+                  className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition active:scale-95 ${
+                    isCurrent
+                      ? 'bg-gradient-to-b from-amber-500 to-yellow-600 border-amber-300 text-slate-950 font-black shadow-lg shadow-amber-500/30 ring-2 ring-amber-400/50'
+                      : isDone
+                      ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/60'
+                      : 'bg-slate-950 hover:bg-slate-800 border-slate-800 text-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-1 font-mono text-xs font-black">
+                    <span>P{cp.pIndex}</span>
+                    {isDone && <Check size={12} className="text-emerald-400" />}
+                  </div>
+                  <span className="text-[8.5px] truncate w-full mt-0.5 opacity-90 font-medium">
+                    {isSv ? cp.nameSv.replace(/P\d+\s*-\s*/, '') : cp.name.replace(/P\d+\s*-\s*/, '')}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* 2. Main Interactive Workspace (Canvas + P1-P10 Scrubber + Kinematics) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         {/* Left Column: 240 fps Canvas + Player Controls (7 cols) */}
@@ -936,6 +1312,15 @@ export default function SwingAnalysisView({
                 }`}
               >
                 Svingbana
+              </button>
+              <button
+                onClick={() => setShowGhost((v) => !v)}
+                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1 ${
+                  showGhost ? 'bg-amber-500 text-slate-950 font-black shadow' : 'text-slate-400'
+                }`}
+              >
+                <span>👻</span>
+                <span>Tiger Ghost</span>
               </button>
             </div>
           </div>

@@ -261,4 +261,62 @@ export class AudioCoachService {
     this.lastFormCueTimeMs = -1;
     this.lastSpokenKey = null;
   }
+
+  /**
+   * Plays a crisp, melodic 3-note ascending chord (C5 -> E5 -> G5) to signal checkpoint lock.
+   */
+  public playSuccessChime(): void {
+    if (this.mode === 'MUTED' || typeof window === 'undefined') return;
+    try {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtxClass) return;
+      const ctx = new AudioCtxClass();
+      const notes = [523.25, 659.25, 783.99]; // C5, E5, G5
+      const now = ctx.currentTime;
+
+      notes.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.07);
+
+        gain.gain.setValueAtTime(0, now + idx * 0.07);
+        gain.gain.linearRampToValueAtTime(0.18, now + idx * 0.07 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.07 + 0.35);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(now + idx * 0.07);
+        osc.stop(now + idx * 0.07 + 0.36);
+      });
+    } catch {
+      // Audio context might be restricted before user interaction
+    }
+  }
+
+  /**
+   * Plays a single sine tone at the given frequency and duration.
+   */
+  public playTone(freq: number, durationMs: number = 150): void {
+    if (this.mode === 'MUTED' || typeof window === 'undefined') return;
+    try {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtxClass) return;
+      const ctx = new AudioCtxClass();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationMs / 1000);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + durationMs / 1000);
+    } catch {
+      // Audio autoplay policy
+    }
+  }
 }
+
