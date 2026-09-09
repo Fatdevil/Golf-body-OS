@@ -1275,8 +1275,8 @@ export default function App() {
           {/* Wi-Fi Guide Badge */}
           <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-[11px] text-emerald-300 font-mono">
             <Smartphone size={13} className="text-emerald-400" />
-            <span>Wi-Fi:</span>
-            <span className="font-bold">http://192.168.68.54:5173</span>
+            <span>Wi-Fi (HTTPS):</span>
+            <span className="font-bold">https://192.168.68.54:5173</span>
           </div>
 
           {/* Mobile-Friendly Segmented View Switcher (Visible on screens < lg) */}
