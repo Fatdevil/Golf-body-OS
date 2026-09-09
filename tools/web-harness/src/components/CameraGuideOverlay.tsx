@@ -109,8 +109,29 @@ export default function CameraGuideOverlay({
         )}
       </svg>
 
-      {/* Persistent Step-by-Step Instructions Card */}
-      <div className="absolute top-4 left-4 max-w-sm bg-black/85 backdrop-blur-md p-4 rounded-xl text-white border border-gray-700 shadow-2xl pointer-events-auto">
+      {/* Mobile Top Pill (< sm screens) */}
+      <div className="sm:hidden absolute top-3 left-3 right-14 z-20 pointer-events-auto flex items-center justify-between bg-black/85 backdrop-blur-md px-3.5 py-2 rounded-full border border-gray-700/80 shadow-lg text-xs">
+        <div className="flex items-center gap-1.5 font-bold text-white truncate">
+          <Compass size={15} className="text-emerald-400 shrink-0" />
+          <span className="truncate">
+            {isFront 
+              ? (language === 'sv-SE' ? '2. Bröstrygg (Fram)' : '2. Thoracic (Front)') 
+              : (language === 'sv-SE' ? '1. Höftfällning (Sida)' : '1. Hip Hinge (Side)')}
+          </span>
+        </div>
+        {isBriefingActive && onSkipBriefing && (
+          <button
+            onClick={onSkipBriefing}
+            className="flex items-center gap-1 px-2.5 py-1 bg-purple-600 active:bg-purple-700 text-white rounded-full text-[11px] font-bold shrink-0 ml-2 shadow"
+          >
+            <FastForward size={11} />
+            <span>{language === 'sv-SE' ? 'Hoppa över' : 'Skip'}</span>
+          </button>
+        )}
+      </div>
+
+      {/* Desktop Persistent Step-by-Step Instructions Card (sm and above) */}
+      <div className="hidden sm:block absolute top-4 left-4 max-w-sm bg-black/85 backdrop-blur-md p-4 rounded-xl text-white border border-gray-700 shadow-2xl pointer-events-auto">
         <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-gray-700/60">
           <h3 className="font-bold text-xs tracking-wider uppercase flex items-center gap-1.5 text-blue-300">
             <Compass size={14} className="text-emerald-400" />
@@ -218,7 +239,7 @@ export default function CameraGuideOverlay({
             {onSkipBriefing && (
               <button
                 onClick={onSkipBriefing}
-                className="px-2 py-1 bg-purple-700 hover:bg-purple-600 text-white rounded text-[11px] font-bold shadow flex items-center gap-1 shrink-0"
+                className="flex items-center gap-1 px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded text-xs font-bold shrink-0 shadow"
               >
                 <FastForward size={12} />
                 <span>{language === 'sv-SE' ? 'Hoppa över' : 'Skip'}</span>
@@ -226,7 +247,7 @@ export default function CameraGuideOverlay({
             )}
           </div>
         ) : (
-          <div className="mt-3 pt-2.5 border-t border-gray-700/60 flex items-center justify-between gap-2">
+          <div className="mt-3 pt-2 border-t border-gray-700/60 flex items-center justify-between">
             <span className="text-[11px] text-gray-400">
               {language === 'sv-SE' ? 'Ställ dig i position för autostart' : 'Get in position for auto-start'}
             </span>
@@ -244,25 +265,25 @@ export default function CameraGuideOverlay({
       </div>
 
       {/* Primary Actionable Instruction Banner at Bottom */}
-      <div className="absolute bottom-16 left-0 right-0 flex justify-center pointer-events-none">
+      <div className="absolute bottom-5 sm:bottom-12 left-2 right-2 flex justify-center pointer-events-none z-20">
         {isBriefingActive ? (
-          <div className="bg-purple-950/90 border-2 border-purple-500 px-8 py-4 rounded-full flex flex-col items-center shadow-2xl backdrop-blur-md">
-            <span className="text-xl md:text-2xl font-bold uppercase tracking-wider text-purple-200 flex items-center gap-2">
+          <div className="bg-purple-950/95 border-[3px] border-purple-400 px-6 py-3.5 sm:px-8 sm:py-4 rounded-2xl flex flex-col items-center shadow-2xl backdrop-blur-md max-w-[95%] sm:max-w-sm text-center">
+            <span className="text-lg sm:text-2xl font-extrabold uppercase tracking-wide text-purple-200 flex items-center gap-2">
               <Volume2 className="animate-pulse text-purple-400" size={22} />
-              {language === 'sv-SE' ? 'LYSSNA PÅ INSTRUKTIONERNA' : 'LISTEN TO INSTRUCTIONS'}
+              {language === 'sv-SE' ? 'LYSSNA PÅ COACHEN' : 'LISTEN TO COACH'}
             </span>
-            <span className="text-xs text-purple-300 mt-0.5">
-              {language === 'sv-SE' ? 'Nedräkningen startar automatiskt när du intagit positionen' : 'Countdown starts automatically once in position'}
+            <span className="text-xs sm:text-sm text-purple-300 mt-1 font-medium">
+              {language === 'sv-SE' ? 'Nedräkningen startar automatiskt i position' : 'Countdown starts automatically in position'}
             </span>
           </div>
         ) : (
-          <div className={`px-8 py-4 rounded-full border-2 ${getStatusColor()} flex flex-col items-center shadow-2xl backdrop-blur-md`}>
-            <span className="text-2xl font-bold uppercase tracking-wider">
+          <div className={`px-6 py-3.5 sm:px-8 sm:py-4 rounded-2xl border-[3px] ${getStatusColor()} flex flex-col items-center shadow-2xl backdrop-blur-md max-w-[95%] sm:max-w-sm text-center`}>
+            <span className="text-lg sm:text-2xl font-black uppercase tracking-wide leading-tight">
               {feedback ? getPhrase(feedback as CoachingPhraseKey, language) : getPhrase('READY', language)}
             </span>
             {readinessState === 'READY_CANDIDATE' && (
-              <span className="text-sm mt-1 animate-pulse">
-                {language === 'sv-SE' ? 'Analyserar stabilitet...' : 'Analyzing stability...'}
+              <span className="text-xs sm:text-sm mt-1 font-bold text-yellow-300 animate-pulse">
+                {language === 'sv-SE' ? 'Håll kvar – kollar stabilitet...' : 'Hold still – checking stability...'}
               </span>
             )}
           </div>

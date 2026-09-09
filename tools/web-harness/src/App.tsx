@@ -157,6 +157,7 @@ export default function App() {
   // Mobile state & Safari Audio unlock
   const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
   const cameraFacingRef = useRef<'user' | 'environment'>('user');
+  const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
   const [mobileTab, setMobileTab] = useState<'TEST' | 'REPORT'>('TEST');
   const [showQrModal, setShowQrModal] = useState(false);
 
@@ -560,6 +561,14 @@ export default function App() {
     
     if (timestampMs > lastVideoTimeRef.current) {
       lastVideoTimeRef.current = timestampMs;
+
+      // Auto-sync canvas resolution with native video stream resolution
+      if (video.videoWidth > 0 && canvasRef.current) {
+        if (canvasRef.current.width !== video.videoWidth || canvasRef.current.height !== video.videoHeight) {
+          canvasRef.current.width = video.videoWidth;
+          canvasRef.current.height = video.videoHeight;
+        }
+      }
       
       const result = landmarker.detectForVideo(video, timestampMs);
       
@@ -778,9 +787,7 @@ export default function App() {
     try {
       const constraints: MediaStreamConstraints = {
         video: {
-          facingMode: cameraFacingRef.current,
-          width: { ideal: 640 },
-          height: { ideal: 480 }
+          facingMode: { ideal: cameraFacingRef.current }
         },
         audio: false
       };
@@ -808,30 +815,48 @@ export default function App() {
   };
 
   const toggleCameraFacing = async () => {
+    if (isSwitchingCamera) return;
+    setIsSwitchingCamera(true);
     unlockAudio();
     const nextFacing = cameraFacing === 'user' ? 'environment' : 'user';
     setCameraFacing(nextFacing);
     cameraFacingRef.current = nextFacing;
 
-    if (modeRef.current === 'WEBCAM' && videoRef.current && videoRef.current.srcObject) {
-      const currentStream = videoRef.current.srcObject as MediaStream;
-      currentStream.getTracks().forEach(track => track.stop());
+    if (modeRef.current === 'WEBCAM' && videoRef.current) {
+      if (videoRef.current.srcObject) {
+        const currentStream = videoRef.current.srcObject as MediaStream;
+        currentStream.getTracks().forEach(track => {
+          try { track.stop(); } catch (e) { /* ignore */ }
+        });
+        videoRef.current.srcObject = null;
+        try { videoRef.current.pause(); } catch (e) { /* ignore */ }
+      }
+
+      // iOS Safari requires a short delay for camera hardware session release before requesting new sensor
+      await new Promise(resolve => setTimeout(resolve, 250));
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: nextFacing,
-            width: { ideal: 640 },
-            height: { ideal: 480 }
-          },
-          audio: false
-        });
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: nextFacing }
+            },
+            audio: false
+          });
+        } catch (errFacing) {
+          console.warn('FacingMode toggle fallback to basic video', errFacing);
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
       } catch (err) {
         console.error('Failed to flip camera:', err);
       }
     }
+    setIsSwitchingCamera(false);
   };
 
   const stopWebcam = () => {
@@ -1257,11 +1282,12 @@ export default function App() {
           {mode === 'WEBCAM' && (
             <button
               onClick={toggleCameraFacing}
+              disabled={isSwitchingCamera}
               type="button"
               className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-200 px-3.5 py-2.5 rounded-xl font-medium text-xs border border-gray-700 transition"
               title={language === 'sv-SE' ? 'Växla mellan fram/bakkamera' : 'Switch between front/rear camera'}
             >
-              <SwitchCamera size={16} />
+              <SwitchCamera size={16} className={isSwitchingCamera ? 'animate-spin' : ''} />
               <span>{cameraFacing === 'user' ? (language === 'sv-SE' ? 'Selfie' : 'Front') : (language === 'sv-SE' ? 'Bakre' : 'Rear')}</span>
             </button>
           )}
@@ -1383,11 +1409,12 @@ export default function App() {
             )}
             <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
             {/* Video Feed */}
-            <div className={`relative w-full max-w-[640px] aspect-[4/3] mx-auto bg-black rounded-2xl overflow-hidden shadow-2xl flex-shrink-0 border border-gray-800 ${mobileTab !== 'TEST' ? 'hidden lg:block' : 'block'}`}>
+            <div className={`relative w-full max-w-[640px] aspect-[3/4] sm:aspect-[4/3] min-h-[480px] sm:min-h-0 mx-auto bg-black rounded-2xl overflow-hidden shadow-2xl flex-shrink-0 border border-gray-800 ${mobileTab !== 'TEST' ? 'hidden lg:block' : 'block'}`}>
               <video
                 ref={videoRef}
                 onEnded={handleVideoEnded}
-                className="absolute inset-0 w-full h-full object-contain"
+                className={mode === 'VIDEO' ? "absolute inset-0 w-full h-full object-contain" : "absolute inset-0 w-full h-full object-cover sm:object-contain"}
+                style={{ transform: mode === 'WEBCAM' && cameraFacing === 'user' ? 'scaleX(-1)' : 'none' }}
                 playsInline
                 muted
                 autoPlay
@@ -1397,26 +1424,28 @@ export default function App() {
                 ref={canvasRef}
                 width={640}
                 height={480}
-                className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+                className={mode === 'VIDEO' ? "absolute inset-0 w-full h-full object-contain pointer-events-none" : "absolute inset-0 w-full h-full object-cover sm:object-contain pointer-events-none"}
+                style={{ transform: mode === 'WEBCAM' && cameraFacing === 'user' ? 'scaleX(-1)' : 'none' }}
               />
 
               {/* Floating Camera Flip Button */}
               {mode === 'WEBCAM' && (
                 <button
                   onClick={toggleCameraFacing}
+                  disabled={isSwitchingCamera}
                   type="button"
-                  className="absolute top-3 right-3 z-30 bg-black/60 hover:bg-black/80 active:scale-95 text-white p-2.5 rounded-full border border-white/20 backdrop-blur shadow-lg transition flex items-center gap-1.5 text-xs font-semibold pointer-events-auto"
+                  className="absolute top-3 right-3 z-30 bg-black/70 hover:bg-black/90 active:scale-95 text-white p-3 rounded-full border border-white/30 backdrop-blur-md shadow-xl transition flex items-center gap-1.5 text-xs font-bold pointer-events-auto min-h-[44px] min-w-[44px] justify-center"
                   title={language === 'sv-SE' ? 'Växla kamera (Fram/Bak)' : 'Flip Camera (Front/Rear)'}
                 >
-                  <SwitchCamera size={18} className="text-white" />
+                  <SwitchCamera size={20} className={`text-white ${isSwitchingCamera ? 'animate-spin' : ''}`} />
                   <span className="hidden sm:inline">{cameraFacing === 'user' ? (language === 'sv-SE' ? 'Selfie' : 'Front') : (language === 'sv-SE' ? 'Bakre' : 'Rear')}</span>
                 </button>
               )}
               
               {/* Live Audio Coach Subtitle Banner */}
               {activeSubtitle && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 max-w-[90%] bg-black/85 backdrop-blur border border-blue-400/60 text-white px-5 py-2 rounded-full shadow-2xl flex items-center gap-2.5 text-sm font-semibold animate-pulse pointer-events-none">
-                  <Volume2 size={18} className="text-blue-400 flex-shrink-0" />
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 max-w-[90%] bg-black/90 backdrop-blur-md border-2 border-blue-400 text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2.5 text-sm sm:text-base font-bold animate-pulse pointer-events-none text-center">
+                  <Volume2 size={20} className="text-blue-400 flex-shrink-0" />
                   <span className="truncate">"{activeSubtitle}"</span>
                 </div>
               )}
@@ -1457,7 +1486,7 @@ export default function App() {
                   )}
                   {appTestState === 'ACTIVE' && (
                     <div className="absolute bottom-4 flex flex-col items-center gap-1 pointer-events-auto">
-                      <div className="bg-red-600 text-white font-bold py-2.5 px-7 rounded-full shadow-2xl animate-pulse flex items-center gap-2 border-2 border-white/30 text-base">
+                      <div className="bg-red-600/95 text-white font-black py-3 px-6 sm:px-8 rounded-2xl shadow-2xl animate-pulse flex items-center gap-3 border-2 border-red-300 text-base sm:text-xl uppercase tracking-wider backdrop-blur-md">
                         <span className="w-3.5 h-3.5 rounded-full bg-white animate-ping"></span>
                         {activeProtocol === 'THORACIC_ROTATION_V1'
                           ? (language === 'sv-SE' ? 'SPELAR IN — ROTERA VÄNSTER & HÖGER' : 'RECORDING — ROTATE LEFT & RIGHT')
