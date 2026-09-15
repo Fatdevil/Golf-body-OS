@@ -67,4 +67,29 @@ describe('BodySwingCorrelator', () => {
     expect(eeCorrelation?.title['sv-SE']).toContain('Höftfällningsbrist');
     expect(eeCorrelation?.explanation['sv-SE']).toContain('24/50');
   });
+
+  it('should not throw when thoracic is undefined and SWAY_BACKSWING fault is detected', () => {
+    const engine = new GolfSwingPhaseEngine();
+    const swingResult = engine.analyzeSequence(generate240FpsSwingSequence(480));
+    swingResult.faults.push({
+      id: 'SWAY_BACKSWING',
+      name: { 'sv-SE': 'Svaj', 'en-US': 'Sway' },
+      severity: 'HIGH',
+      phaseDetected: 'P4_TOP',
+      metricValue: 20,
+      threshold: 15,
+      unit: '%',
+      description: { 'sv-SE': 'Höftsvaj', 'en-US': 'Hip sway' },
+      relatedBodyLimitation: { 'sv-SE': 'Stelhet', 'en-US': 'Stiffness' }
+    });
+
+    const bodyWithoutThoracic: any = {
+      totalScore: 50,
+      hipHinge: { total: 30, score: 30 }
+    };
+
+    expect(() => {
+      correlator.correlate(bodyWithoutThoracic, swingResult);
+    }).not.toThrow();
+  });
 });

@@ -47,10 +47,56 @@ export default function NeonSentinel3DView({
   const trailLineRef = useRef<THREE.Mesh | null>(null);
   const clubheadPingRef = useRef<THREE.Mesh | null>(null);
 
+  const mixerRef = useRef<THREE.AnimationMixer | null>(null);
+  const animationsRef = useRef<THREE.AnimationClip[]>([]);
+  const currentActionRef = useRef<THREE.AnimationAction | null>(null);
+
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [modelReady, setModelReady] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [currentCameraPreset, setCurrentCameraPreset] = useState<'FACE_ON' | 'DTL' | 'HERO' | 'FREE'>('FACE_ON');
+  const [handPose, setHandPose] = useState<'grip' | 'open' | 'fist'>('grip');
+  const [showClub, setShowClub] = useState<boolean>(false); // Hidden by default as requested
+
+  // Dynamic tracking refs for 60fps render loop
+  const currentFrameRef = useRef<PoseFrame | null>(currentFrame);
+  currentFrameRef.current = currentFrame;
+  const metricsRef = useRef<SwingKinematics | null | undefined>(metrics);
+  metricsRef.current = metrics;
+  const isRightHandedRef = useRef<boolean>(isRightHanded);
+  isRightHandedRef.current = isRightHanded;
+  const isMirroredViewRef = useRef<boolean>(isMirroredView);
+  isMirroredViewRef.current = isMirroredView;
+  const showClubRef = useRef<boolean>(showClub);
+  showClubRef.current = showClub;
+
+  // Switch hand pose (Golf Grip vs Open vs Fist)
+  const applyHandPose = useCallback((pose: 'grip' | 'open' | 'fist') => {
+    setHandPose(pose);
+    const mixer = mixerRef.current;
+    const anims = animationsRef.current;
+    if (!mixer || !anims.length) return;
+
+    let targetName = 'FingersOnly_GolfGrip';
+    if (pose === 'open') {
+      targetName = 'FingersOnly_OpenClose';
+    } else if (pose === 'fist') {
+      targetName = 'Hands_Fist';
+    }
+
+    const clip = anims.find(a => a.name === targetName) ||
+                 anims.find(a => a.name.toLowerCase().includes(pose === 'grip' ? 'golfgrip' : pose));
+    if (clip) {
+      mixer.stopAllAction();
+      const action = mixer.clipAction(clip);
+      action.clampWhenFinished = true;
+      action.setLoop(THREE.LoopOnce, 1);
+      action.reset();
+      action.fadeIn(0.15);
+      action.play();
+      currentActionRef.current = action;
+    }
+  }, []);
 
   // Camera preset positions
   const setCameraPreset = useCallback((preset: 'FACE_ON' | 'DTL' | 'HERO' | 'FREE') => {
@@ -226,21 +272,14 @@ export default function NeonSentinel3DView({
     clubheadPingRef.current = ping;
     scene.add(ping);
 
-    // 8. Load Neon Sentinel 3D Model
+    // 8. Load 3D Golfer Model with Finger Rig
     const loader = new GLTFLoader();
     loader.load(
       '/models/avatar/neon_sentinel.glb',
       (gltf) => {
         const model = gltf.scene;
         modelRef.current = model;
-
-        // Apply authentic sci-fi cyber carbon material
-        const cyberMat = new THREE.MeshStandardMaterial({
-          color: new THREE.Color('#141d2f'), // dark titanium carbon
-          metalness: 0.88,
-          roughness: 0.22,
-          wireframe: false
-        });
+        animationsRef.current = gltf.animations;
 
         // Glowing Cyan LED Joint Material
         const ledMat = new THREE.MeshStandardMaterial({
@@ -255,19 +294,31 @@ export default function NeonSentinel3DView({
         const initialQuats: Record<string, THREE.Quaternion> = {};
         const initialPos: Record<string, THREE.Vector3> = {};
 
+        // Preserve normal maps and textures, apply clean athletic pearlescent finish
         model.traverse((child) => {
           if (child instanceof THREE.Mesh) {
             child.castShadow = true;
             child.receiveShadow = true;
-            child.material = cyberMat;
             if (child instanceof THREE.SkinnedMesh) {
               skinnedMeshRef.current = child;
+              if (child.material) {
+                const m = child.material as THREE.MeshStandardMaterial;
+                // High-visibility athletic titanium pearl finish
+                m.color.set('#f1f5f9');
+                m.roughness = 0.42;
+                m.metalness = 0.18;
+                m.needsUpdate = true;
+              }
             }
           }
           if (child instanceof THREE.Bone) {
+            const cleanName = child.name.replace(/^mixamorig:?/i, '');
             bonesMap[child.name] = child;
+            bonesMap[cleanName] = child;
             initialQuats[child.name] = child.quaternion.clone();
+            initialQuats[cleanName] = child.quaternion.clone();
             initialPos[child.name] = child.position.clone();
+            initialPos[cleanName] = child.position.clone();
 
             // Add glowing cyan sphere to joints
             const isJoint = [
@@ -278,11 +329,11 @@ export default function NeonSentinel3DView({
               'LeftUpLeg', 'RightUpLeg',
               'LeftLeg', 'RightLeg',
               'LeftFoot', 'RightFoot',
-              'Spine', 'neck', 'Head'
-            ].includes(child.name);
+              'Spine', 'Neck', 'neck', 'Head'
+            ].includes(cleanName);
 
             if (isJoint) {
-              const sphereGeo = new THREE.SphereGeometry(0.024, 12, 12);
+              const sphereGeo = new THREE.SphereGeometry(0.022, 12, 12);
               const sphere = new THREE.Mesh(sphereGeo, ledMat);
               child.add(sphere);
             }
@@ -292,6 +343,18 @@ export default function NeonSentinel3DView({
         bonesMapRef.current = bonesMap;
         initialQuatsRef.current = initialQuats;
         initialPosRef.current = initialPos;
+
+        // Create animation mixer and apply default golf grip (only affects fingers)
+        const mixer = new THREE.AnimationMixer(model);
+        mixerRef.current = mixer;
+        const gripClip = gltf.animations.find(a => a.name === 'FingersOnly_GolfGrip');
+        if (gripClip) {
+          const action = mixer.clipAction(gripClip);
+          action.clampWhenFinished = true;
+          action.setLoop(THREE.LoopOnce, 1);
+          action.play();
+          currentActionRef.current = action;
+        }
 
         // Position model centered on stage
         model.position.set(0, 0, 0);
@@ -318,10 +381,17 @@ export default function NeonSentinel3DView({
     };
     window.addEventListener('resize', handleResize);
 
-    // Animation Render Loop
+    // Animation Render Loop with Pose Update
+    const clock = new THREE.Clock();
     let animId: number;
     const animate = () => {
       animId = requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      if (mixerRef.current) {
+        mixerRef.current.update(delta);
+      }
+      // Apply frame kinematics after mixer update so body pose is never overwritten
+      updatePoseBones();
       controls.update();
       renderer.render(scene, camera);
     };
@@ -338,20 +408,19 @@ export default function NeonSentinel3DView({
     };
   }, []);
 
-  // Update Pose & Articulate Bones on Frame Change
-  useEffect(() => {
+  // Kinematic Pose Articulation Function
+  const updatePoseBones = useCallback(() => {
+    const frame = currentFrameRef.current;
+    const met = metricsRef.current;
     const bones = bonesMapRef.current;
-    const initialQuats = initialQuatsRef.current;
     const initialPos = initialPosRef.current;
     const skinnedMesh = skinnedMeshRef.current;
-    if (!currentFrame || !bones || Object.keys(bones).length === 0) return;
+    if (!frame || !bones || Object.keys(bones).length === 0) return;
 
-    // Coordinate conversion: MediaPipe (x, y, z) -> Three.js 3D world vectors
-    const shouldFlip = (!isRightHanded) !== isMirroredView;
+    const shouldFlip = (!isRightHandedRef.current) !== isMirroredViewRef.current;
     const to3D = (lm: Landmark | undefined): THREE.Vector3 => {
       if (!lm) return new THREE.Vector3(0, 0, 0);
       const rawX = shouldFlip ? 1 - lm.x : lm.x;
-      // Centered at stage (0, 0, 0). Normal height = 1.75m.
       return new THREE.Vector3(
         (rawX - 0.5) * 1.55,
         (0.92 - lm.y) * 1.75,
@@ -360,63 +429,62 @@ export default function NeonSentinel3DView({
     };
 
     // Key landmarks
-    const lHip = to3D(getLandmark(currentFrame, LandmarkId.LEFT_HIP));
-    const rHip = to3D(getLandmark(currentFrame, LandmarkId.RIGHT_HIP));
-    const lKnee = to3D(getLandmark(currentFrame, LandmarkId.LEFT_KNEE));
-    const rKnee = to3D(getLandmark(currentFrame, LandmarkId.RIGHT_KNEE));
-    const lAnkle = to3D(getLandmark(currentFrame, LandmarkId.LEFT_ANKLE));
-    const rAnkle = to3D(getLandmark(currentFrame, LandmarkId.RIGHT_ANKLE));
+    const lHip = to3D(getLandmark(frame, LandmarkId.LEFT_HIP));
+    const rHip = to3D(getLandmark(frame, LandmarkId.RIGHT_HIP));
+    const lKnee = to3D(getLandmark(frame, LandmarkId.LEFT_KNEE));
+    const rKnee = to3D(getLandmark(frame, LandmarkId.RIGHT_KNEE));
+    const lAnkle = to3D(getLandmark(frame, LandmarkId.LEFT_ANKLE));
+    const rAnkle = to3D(getLandmark(frame, LandmarkId.RIGHT_ANKLE));
 
-    const lShoulder = to3D(getLandmark(currentFrame, LandmarkId.LEFT_SHOULDER));
-    const rShoulder = to3D(getLandmark(currentFrame, LandmarkId.RIGHT_SHOULDER));
-    const lElbow = to3D(getLandmark(currentFrame, LandmarkId.LEFT_ELBOW));
-    const rElbow = to3D(getLandmark(currentFrame, LandmarkId.RIGHT_ELBOW));
-    const lWrist = to3D(getLandmark(currentFrame, LandmarkId.LEFT_WRIST));
-    const rWrist = to3D(getLandmark(currentFrame, LandmarkId.RIGHT_WRIST));
+    const lShoulder = to3D(getLandmark(frame, LandmarkId.LEFT_SHOULDER));
+    const rShoulder = to3D(getLandmark(frame, LandmarkId.RIGHT_SHOULDER));
+    const lElbow = to3D(getLandmark(frame, LandmarkId.LEFT_ELBOW));
+    const rElbow = to3D(getLandmark(frame, LandmarkId.RIGHT_ELBOW));
+    const lWrist = to3D(getLandmark(frame, LandmarkId.LEFT_WRIST));
+    const rWrist = to3D(getLandmark(frame, LandmarkId.RIGHT_WRIST));
+    const nose = to3D(getLandmark(frame, LandmarkId.NOSE));
 
-    const nose = to3D(getLandmark(currentFrame, LandmarkId.NOSE));
-
-    // Helper: align bone local +Y to target vector
     const rotateBoneTowards = (boneName: string, start: THREE.Vector3, target: THREE.Vector3) => {
       const bone = bones[boneName];
-      const baseQuat = initialQuats[boneName];
-      if (!bone || !baseQuat) return;
+      if (!bone) return;
 
       const worldDir = new THREE.Vector3().subVectors(target, start).normalize();
       if (worldDir.lengthSq() < 0.001) return;
 
-      // Transform target direction into parent bone coordinate frame
       const localDir = worldDir.clone();
       if (bone.parent) {
+        bone.parent.updateMatrixWorld(true);
         const parentWorldQuat = new THREE.Quaternion();
         bone.parent.getWorldQuaternion(parentWorldQuat);
         localDir.applyQuaternion(parentWorldQuat.invert());
       }
 
-      // Bone local default points along +Y (0, 1, 0)
       const defaultDir = new THREE.Vector3(0, 1, 0);
       const q = new THREE.Quaternion().setFromUnitVectors(defaultDir, localDir);
       bone.quaternion.copy(q);
+      bone.updateMatrixWorld(true);
     };
 
     // 1. Root & Pelvis (Hips)
     const hips = bones['Hips'];
     if (hips && initialPos['Hips']) {
       const midHip = new THREE.Vector3().addVectors(lHip, rHip).multiplyScalar(0.5);
-      hips.position.set(midHip.x, Math.max(0.70, midHip.y + 0.05), midHip.z);
+      hips.position.set(midHip.x, Math.max(0.82, midHip.y + 0.12), midHip.z);
 
-      const hipAngleDeg = metrics?.pelvisTurn ?? 0;
+      const hipAngleDeg = met?.pelvisTurn ?? 0;
       const hipRot = (hipAngleDeg * Math.PI) / 180;
       hips.rotation.y = shouldFlip ? -hipRot : hipRot;
+      hips.updateMatrixWorld(true);
     }
 
     // 2. Spine & Torso Turn
     const spine = bones['Spine'] || bones['Spine02'];
     if (spine) {
-      const shoulderAngleDeg = metrics?.shoulderTurn ?? 0;
+      const shoulderAngleDeg = met?.shoulderTurn ?? 0;
       const shoulderRot = (shoulderAngleDeg * Math.PI) / 180;
       spine.rotation.y = shouldFlip ? -shoulderRot * 0.75 : shoulderRot * 0.75;
-      spine.rotation.z = (lShoulder.y - rShoulder.y) * 0.4; // Lateral crunch / tilt
+      spine.rotation.z = (lShoulder.y - rShoulder.y) * 0.4;
+      spine.updateMatrixWorld(true);
     }
 
     // 3. Legs
@@ -438,25 +506,30 @@ export default function NeonSentinel3DView({
       rotateBoneTowards('Head', midShoulder, nose);
     }
 
-    // 6. Update Golf Club Position & Alignment
+    // 6. Club Group (Hidden by default, shown only when user enables showClub)
     const clubGroup = clubGroupRef.current;
-    if (clubGroup && lWrist && rWrist) {
-      const handsMid = new THREE.Vector3().addVectors(lWrist, rWrist).multiplyScalar(0.5);
-      clubGroup.position.copy(handsMid);
+    if (clubGroup) {
+      clubGroup.visible = showClubRef.current;
+      if (showClubRef.current && lWrist && rWrist) {
+        const handsMid = new THREE.Vector3().addVectors(lWrist, rWrist).multiplyScalar(0.5);
+        clubGroup.position.copy(handsMid);
 
-      // Club orientation
-      if (currentFrame.club) {
-        const cHead = to3D(currentFrame.club.clubHead as Landmark);
-        const shaftDir = new THREE.Vector3().subVectors(cHead, handsMid).normalize();
-        const defaultShaftDir = new THREE.Vector3(0, -1, 0);
-        clubGroup.quaternion.setFromUnitVectors(defaultShaftDir, shaftDir);
-
-        if (clubheadPingRef.current) {
-          clubheadPingRef.current.position.copy(cHead);
-          clubheadPingRef.current.visible = true;
+        if (frame.club) {
+          const cHead = to3D(frame.club.clubHead as Landmark);
+          const shaftDir = new THREE.Vector3().subVectors(cHead, handsMid).normalize();
+          const defaultShaftDir = new THREE.Vector3(0, -1, 0);
+          clubGroup.quaternion.setFromUnitVectors(defaultShaftDir, shaftDir);
+          if (clubheadPingRef.current) {
+            clubheadPingRef.current.position.copy(cHead);
+            clubheadPingRef.current.visible = true;
+          }
+        } else {
+          clubGroup.rotation.set(0, 0, 0);
+          if (clubheadPingRef.current) {
+            clubheadPingRef.current.visible = false;
+          }
         }
       } else {
-        clubGroup.rotation.set(0, 0, 0);
         if (clubheadPingRef.current) {
           clubheadPingRef.current.visible = false;
         }
@@ -466,7 +539,15 @@ export default function NeonSentinel3DView({
     if (skinnedMesh) {
       skinnedMesh.skeleton.update();
     }
-  }, [currentFrame, metrics, isRightHanded, isMirroredView, modelReady]);
+  }, []);
+
+  const updatePoseBonesRef = useRef(updatePoseBones);
+  updatePoseBonesRef.current = updatePoseBones;
+
+  // Trigger pose update when frame or metrics change
+  useEffect(() => {
+    updatePoseBones();
+  }, [currentFrame, metrics, isRightHanded, isMirroredView, modelReady, showClub, updatePoseBones]);
 
   // 3D Toptracer Arc
   useEffect(() => {
@@ -520,9 +601,9 @@ export default function NeonSentinel3DView({
       {/* Loading Overlay */}
       {isLoading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/85 backdrop-blur-md rounded-2xl z-20">
-          <div className="w-12 h-12 border-4 border-cyan-500/30 border-t-cyan-400 rounded-full animate-spin mb-3" />
-          <p className="text-cyan-300 font-bold text-sm tracking-wider">LADDAR 3D NEON SENTINEL...</p>
-          <p className="text-slate-400 text-xs mt-1">Laddar PBR-material, texturer & 28-ledat skelett</p>
+          <div className="w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-400 rounded-full animate-spin mb-3" />
+          <p className="text-emerald-300 font-bold text-sm tracking-wider">LADDAR 3D GOLF AVATAR...</p>
+          <p className="text-slate-400 text-xs mt-1">Laddar PBR-material, normal-maps & 57-ledat skelett med fingrar</p>
         </div>
       )}
 
@@ -534,54 +615,105 @@ export default function NeonSentinel3DView({
       )}
 
       {/* Top Floating View Controls */}
-      <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none z-10">
-        {/* Badge */}
+      <div className="absolute top-3 left-3 right-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none z-10">
+        {/* Left: Badge */}
         <div className="bg-slate-900/95 border border-slate-700/80 rounded-xl px-3 py-1.5 backdrop-blur-md flex items-center gap-2 pointer-events-auto shadow-2xl">
-          <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
-          <span className="text-xs font-black tracking-wider text-cyan-300">NEON SENTINEL 3D</span>
-          <span className="text-[10px] bg-cyan-950 text-cyan-400 px-1.5 py-0.5 rounded border border-cyan-700/50">
-            28 LEDER
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-xs font-black tracking-wider text-slate-200">GOLF AVATAR 3D</span>
+          <span className="text-[10px] bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-700/50 font-semibold">
+            57 LEDER • FINGRAR
           </span>
         </div>
 
-        {/* 3D Camera Angles */}
-        <div className="flex bg-slate-900/95 p-1 rounded-xl border border-slate-700/80 backdrop-blur-md gap-1 pointer-events-auto shadow-2xl">
+        {/* Right: Hand Controls & Camera Controls */}
+        <div className="flex items-center gap-2 pointer-events-auto">
+          {/* Hand Pose Selector */}
+          <div className="flex bg-slate-900/95 p-1 rounded-xl border border-slate-700/80 backdrop-blur-md gap-1 shadow-2xl">
+            <button
+              onClick={() => applyHandPose('grip')}
+              className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                handPose === 'grip' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+              title="Golfgrepp (fingrarna sluter om klubban)"
+            >
+              <span>🏌️</span>
+              <span>Grepp</span>
+            </button>
+            <button
+              onClick={() => applyHandPose('fist')}
+              className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                handPose === 'fist' ? 'bg-cyan-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+              title="Knytnäve"
+            >
+              <span>✊</span>
+              <span>Knytnäve</span>
+            </button>
+            <button
+              onClick={() => applyHandPose('open')}
+              className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                handPose === 'open' ? 'bg-cyan-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+              title="Öppna händer"
+            >
+              <span>✋</span>
+              <span>Öppen</span>
+            </button>
+          </div>
+
+          {/* Club Visibility Toggle (Defaults to hidden as requested) */}
           <button
-            onClick={() => setCameraPreset('FACE_ON')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-              currentCameraPreset === 'FACE_ON' ? 'bg-cyan-600 text-white shadow' : 'text-slate-400 hover:text-white'
+            onClick={() => setShowClub(v => !v)}
+            className={`px-2.5 py-1 rounded-xl border text-xs font-bold transition flex items-center gap-1 shadow-2xl backdrop-blur-md ${
+              showClub
+                ? 'bg-amber-600 border-amber-400 text-white'
+                : 'bg-slate-900/95 border-slate-700/80 text-slate-400 hover:text-slate-200'
             }`}
-            title="Face-on vy (framifrån)"
+            title={showClub ? 'Klicka för att dölja klubban' : 'Klicka för att visa klubban'}
           >
-            <span>📺</span>
-            <span>Face-On</span>
+            <span>🏌️</span>
+            <span>{showClub ? 'Klubba: På' : 'Klubba: Dold'}</span>
           </button>
-          <button
-            onClick={() => setCameraPreset('DTL')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-              currentCameraPreset === 'DTL' ? 'bg-cyan-600 text-white shadow' : 'text-slate-400 hover:text-white'
-            }`}
-            title="Down-the-line vy (mållinje bakifrån)"
-          >
-            <span>🎯</span>
-            <span>DTL</span>
-          </button>
-          <button
-            onClick={() => setCameraPreset('HERO')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-              currentCameraPreset === 'HERO' ? 'bg-cyan-600 text-white shadow' : 'text-slate-400 hover:text-white'
-            }`}
-            title="45° Isometrisk Tour-vinkel"
-          >
-            <span>📐</span>
-            <span>45° Tour</span>
-          </button>
+
+          {/* 3D Camera Angles */}
+          <div className="flex bg-slate-900/95 p-1 rounded-xl border border-slate-700/80 backdrop-blur-md gap-1 shadow-2xl">
+            <button
+              onClick={() => setCameraPreset('FACE_ON')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                currentCameraPreset === 'FACE_ON' ? 'bg-cyan-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+              title="Face-on vy (framifrån)"
+            >
+              <span>📺</span>
+              <span>Face-On</span>
+            </button>
+            <button
+              onClick={() => setCameraPreset('DTL')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                currentCameraPreset === 'DTL' ? 'bg-cyan-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+              title="Down-the-line vy (mållinje bakifrån)"
+            >
+              <span>🎯</span>
+              <span>DTL</span>
+            </button>
+            <button
+              onClick={() => setCameraPreset('HERO')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                currentCameraPreset === 'HERO' ? 'bg-cyan-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+              title="45° Isometrisk Tour-vinkel"
+            >
+              <span>📐</span>
+              <span>45° Tour</span>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Bottom Floating Hint */}
       <div className="absolute bottom-3 left-4 text-[11px] text-slate-200 bg-slate-900/90 px-3 py-1.5 rounded-xl border border-slate-700/80 backdrop-blur-md shadow-xl pointer-events-none">
-        💡 Klicka & dra med musen för 360° fri rotation runt golfaren • Scrolla för zoom
+        💡 Klicka & dra med musen för 360° fri rotation runt golfaren • Byt handpose med knapparna ovan
       </div>
     </div>
   );

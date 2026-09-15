@@ -7,23 +7,41 @@
 
 import { LandmarkId } from '../types/landmark';
 import { PoseFrame } from '../types/pose-frame';
-import { CameraViewAngle } from '../types/golf-swing';
+import { CameraViewAngle, SwingPhaseId } from '../types/golf-swing';
 import { CoachingPhraseKey } from './i18n/locales';
 import { generate240FpsSwingSequence } from '../data/sample-240fps-swing';
-import { getLandmark, extractPhaseKinematics } from '../metrics/golf-swing-metrics';
+import { getLandmark, extractPhaseKinematics, computeTransverseTurn } from '../metrics/golf-swing-metrics';
 import { mirrorPoseFrame } from '../coordinates/pose-mirror';
 
 export type GhostCheckpointId =
-  | 'P1_ADDRESS'
-  | 'P2_TAKEAWAY'
+  | SwingPhaseId
   | 'P3_LEAD_ARM_PARALLEL'
   | 'P4_TOP_OF_BACKSWING'
   | 'P5_SHALLOWING'
-  | 'P6_DELIVERY'
-  | 'P7_IMPACT'
   | 'P8_EXTENSION'
-  | 'P9_FOLLOW_THROUGH'
-  | 'P10_FINISH';
+  | 'P9_FOLLOW_THROUGH';
+
+export function toSwingPhaseId(checkpointId: GhostCheckpointId): SwingPhaseId {
+  const map: Record<string, SwingPhaseId> = {
+    P3_LEAD_ARM_PARALLEL: 'P3_HALFWAY_BACK',
+    P4_TOP_OF_BACKSWING: 'P4_TOP',
+    P5_SHALLOWING: 'P5_SHALLOW',
+    P8_EXTENSION: 'P8_RELEASE',
+    P9_FOLLOW_THROUGH: 'P9_REHINGE'
+  };
+  return (map[checkpointId] || checkpointId) as SwingPhaseId;
+}
+
+export function toGhostCheckpointId(phaseId: SwingPhaseId): GhostCheckpointId {
+  const map: Record<string, GhostCheckpointId> = {
+    P3_HALFWAY_BACK: 'P3_LEAD_ARM_PARALLEL',
+    P4_TOP: 'P4_TOP_OF_BACKSWING',
+    P5_SHALLOW: 'P5_SHALLOWING',
+    P8_RELEASE: 'P8_EXTENSION',
+    P9_REHINGE: 'P9_FOLLOW_THROUGH'
+  };
+  return map[phaseId] || phaseId;
+}
 
 export interface GhostCheckpointDef {
   id: GhostCheckpointId;
@@ -62,9 +80,9 @@ export const GHOST_CHECKPOINTS: GhostCheckpointDef[] = [
     cueKey: 'GHOST_CUE_P2',
     descriptionEn: 'Shaft parallel to ground and target line, wide chest rotation.',
     descriptionSv: 'Klubbskaft parallellt med marken och mållinjen, bred bröstrotation.',
-    targetShoulderTurnDeg: 40,
-    targetHipTurnDeg: 18,
-    toleranceDeg: 10
+    targetShoulderTurnDeg: 30,
+    targetHipTurnDeg: 10,
+    toleranceDeg: 8
   },
   {
     id: 'P3_LEAD_ARM_PARALLEL',
@@ -76,7 +94,7 @@ export const GHOST_CHECKPOINTS: GhostCheckpointDef[] = [
     descriptionEn: 'Left arm parallel to ground, 90° wrist hinge set, trail arm folding.',
     descriptionSv: 'Främre arm parallell med marken, handlederna vinklade 90°, bakre armbåge börjar vika sig.',
     targetShoulderTurnDeg: 68,
-    targetHipTurnDeg: 32,
+    targetHipTurnDeg: 24,
     toleranceDeg: 10
   },
   {
@@ -86,9 +104,9 @@ export const GHOST_CHECKPOINTS: GhostCheckpointDef[] = [
     pIndex: 4,
     frameIndex240Fps: 230,
     cueKey: 'GHOST_CUE_P4',
-    descriptionEn: 'Full 90° shoulder coil, 45° hip turn, trail elbow in waiter-tray position.',
-    descriptionSv: 'Full 90° axelrotation, 45° höftvridning, bakre armbåge i kypargrepp.',
-    targetShoulderTurnDeg: 90,
+    descriptionEn: 'Full 90°+ shoulder coil, 45° hip turn, trail elbow in waiter-tray position.',
+    descriptionSv: 'Full 90°+ axelrotation, 45° höftvridning, bakre armbåge i kypargrepp.',
+    targetShoulderTurnDeg: 95,
     targetHipTurnDeg: 45,
     toleranceDeg: 10
   },
@@ -101,8 +119,8 @@ export const GHOST_CHECKPOINTS: GhostCheckpointDef[] = [
     cueKey: 'GHOST_CUE_P5',
     descriptionEn: 'Hands drop vertically into the slot, trail elbow tucks, wrist hinge maintained.',
     descriptionSv: 'Händerna droppar vertikalt i The Slot, höger armbåge tät mot revbenen, behållen lagg.',
-    targetShoulderTurnDeg: 62,
-    targetHipTurnDeg: 30,
+    targetShoulderTurnDeg: 55,
+    targetHipTurnDeg: 25,
     toleranceDeg: 12
   },
   {
@@ -112,10 +130,10 @@ export const GHOST_CHECKPOINTS: GhostCheckpointDef[] = [
     pIndex: 6,
     frameIndex240Fps: 280,
     cueKey: 'GHOST_CUE_P6',
-    descriptionEn: 'Shaft parallel to ground and target line, hips beginning to clear open.',
+    descriptionEn: 'Shaft parallel to ground and target line, hips clearing open.',
     descriptionSv: 'Klubbskaft parallellt med marken mot målet, höfterna öppnar upp.',
-    targetShoulderTurnDeg: 28,
-    targetHipTurnDeg: 28,
+    targetShoulderTurnDeg: 22,
+    targetHipTurnDeg: -35,
     toleranceDeg: 12
   },
   {
@@ -125,10 +143,10 @@ export const GHOST_CHECKPOINTS: GhostCheckpointDef[] = [
     pIndex: 7,
     frameIndex240Fps: 290,
     cueKey: 'GHOST_CUE_P7',
-    descriptionEn: 'Hands forward, hips 45° open, head stable behind ball, tush line maintained.',
-    descriptionSv: 'Händerna pressade framåt, höfterna 45° öppna, huvudet bakom bollen, rumpan kvar på tush line.',
-    targetShoulderTurnDeg: 24,
-    targetHipTurnDeg: 42,
+    descriptionEn: 'Hands forward, hips 40–45° open, head stable behind ball, tush line maintained.',
+    descriptionSv: 'Händerna pressade framåt, höfterna 40–45° öppna, huvudet bakom bollen, rumpan kvar på tush line.',
+    targetShoulderTurnDeg: -24,
+    targetHipTurnDeg: -42,
     toleranceDeg: 10
   },
   {
@@ -140,8 +158,8 @@ export const GHOST_CHECKPOINTS: GhostCheckpointDef[] = [
     cueKey: 'GHOST_CUE_P8',
     descriptionEn: 'Both arms fully extended towards target, trail heel releasing.',
     descriptionSv: 'Båda armarna fullt sträckta mot målet, bakre hälen släpper marken.',
-    targetShoulderTurnDeg: 55,
-    targetHipTurnDeg: 62,
+    targetShoulderTurnDeg: -55,
+    targetHipTurnDeg: -62,
     toleranceDeg: 12
   },
   {
@@ -153,8 +171,8 @@ export const GHOST_CHECKPOINTS: GhostCheckpointDef[] = [
     cueKey: 'GHOST_CUE_P9',
     descriptionEn: 'Chest turning upwards, arms folding naturally over lead shoulder.',
     descriptionSv: 'Bröstkorgen roterar uppåt och runt, armarna viks naturligt över främre axeln.',
-    targetShoulderTurnDeg: 80,
-    targetHipTurnDeg: 78,
+    targetShoulderTurnDeg: -80,
+    targetHipTurnDeg: -78,
     toleranceDeg: 14
   },
   {
@@ -166,8 +184,8 @@ export const GHOST_CHECKPOINTS: GhostCheckpointDef[] = [
     cueKey: 'GHOST_CUE_P10',
     descriptionEn: 'Tall spine, 95% weight on lead heel, belt buckle facing target, total balance.',
     descriptionSv: 'Stolt hållning, 95% av vikten på främre hälen, bältesspännet mot målet, perfekt balans.',
-    targetShoulderTurnDeg: 105,
-    targetHipTurnDeg: 90,
+    targetShoulderTurnDeg: -105,
+    targetHipTurnDeg: -90,
     toleranceDeg: 15
   }
 ];
@@ -292,12 +310,16 @@ export function evaluateGhostPoseMatch(
     }
   }
 
+  // Address baseline landmarks
+  const addrLS = getLandmark(addressBaselineFrame, LandmarkId.LEFT_SHOULDER);
+  const addrRS = getLandmark(addressBaselineFrame, LandmarkId.RIGHT_SHOULDER);
+  const addrLH = getLandmark(addressBaselineFrame, LandmarkId.LEFT_HIP);
+  const addrRH = getLandmark(addressBaselineFrame, LandmarkId.RIGHT_HIP);
+
   // 2. Check Early Extension / Tush line in DTL at Delivery & Impact
   if (viewAngle === 'DOWN_THE_LINE' && (targetCheckpoint.id === 'P6_DELIVERY' || targetCheckpoint.id === 'P7_IMPACT')) {
-    const addrLH = getLandmark(addressBaselineFrame, LandmarkId.LEFT_HIP);
-    const addrRH = getLandmark(addressBaselineFrame, LandmarkId.RIGHT_HIP);
     if (addrLH && addrRH && playerLH && playerRH) {
-      const isButtOnRight = isRightHanded;
+      const isButtOnRight = isMirroredView ? !isRightHanded : isRightHanded;
       const addrHipX = isButtOnRight ? Math.max(addrLH.x, addrRH.x) : Math.min(addrLH.x, addrRH.x);
       const currHipX = isButtOnRight ? Math.max(playerLH.x, playerRH.x) : Math.min(playerLH.x, playerRH.x);
       const pelvisThrust = isButtOnRight ? (addrHipX - currHipX) : (currHipX - addrHipX);
@@ -335,6 +357,33 @@ export function evaluateGhostPoseMatch(
     }
   }
 
+  // Measure actual player turns relative to address baseline
+  const playerLS = getLandmark(playerFrame, LandmarkId.LEFT_SHOULDER);
+  const playerRS = getLandmark(playerFrame, LandmarkId.RIGHT_SHOULDER);
+
+  let measuredShoulderTurn = targetCheckpoint.targetShoulderTurnDeg;
+  let measuredHipTurn = targetCheckpoint.targetHipTurnDeg;
+
+  if (viewAngle === 'FACE_ON') {
+    if (playerLS && playerRS) {
+      measuredShoulderTurn = Math.abs(Math.round(computeTransverseTurn(playerLS, playerRS, isRightHanded)));
+    }
+    if (playerLH && playerRH) {
+      measuredHipTurn = Math.abs(Math.round(computeTransverseTurn(playerLH, playerRH, isRightHanded)));
+    }
+  } else {
+    if (playerLS && playerRS && addrLS && addrRS) {
+      const currST = computeTransverseTurn(playerLS, playerRS, isRightHanded);
+      const addrST = computeTransverseTurn(addrLS, addrRS, isRightHanded);
+      measuredShoulderTurn = Math.abs(Math.round(currST - addrST));
+    }
+    if (playerLH && playerRH && addrLH && addrRH) {
+      const currHT = computeTransverseTurn(playerLH, playerRH, isRightHanded);
+      const addrHT = computeTransverseTurn(addrLH, addrRH, isRightHanded);
+      measuredHipTurn = Math.abs(Math.round(currHT - addrHT));
+    }
+  }
+
   const matchScore = Math.min(100, Math.max(0, Math.round(landmarkScore)));
   const isLocked = matchScore >= 82;
 
@@ -348,9 +397,9 @@ export function evaluateGhostPoseMatch(
     checkpointId: targetCheckpoint.id,
     matchScore,
     isLocked,
-    shoulderTurnDeg: targetCheckpoint.targetShoulderTurnDeg,
+    shoulderTurnDeg: measuredShoulderTurn,
     targetShoulderTurnDeg: targetCheckpoint.targetShoulderTurnDeg,
-    hipTurnDeg: targetCheckpoint.targetHipTurnDeg,
+    hipTurnDeg: measuredHipTurn,
     targetHipTurnDeg: targetCheckpoint.targetHipTurnDeg,
     primaryCorrectionCue: primaryCue,
     statusMessageEn: statusEn,

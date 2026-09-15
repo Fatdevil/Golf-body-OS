@@ -1,0 +1,64 @@
+{
+  "total_skin_joints": 57,
+  "new_finger_joints": 30,
+  "bind_pose_max_error_m": 2.3439116336312285e-07,
+  "body_motion_from_finger_clip_m": 0.0,
+  "weights_sum_max_error": 1.1920928955078125e-07,
+  "finger_tests": {
+    "LeftThumb": {
+      "weighted_vertices": 432,
+      "max_displacement_m": 0.08120807306286697
+    },
+    "RightThumb": {
+      "weighted_vertices": 473,
+      "max_displacement_m": 0.08081977418353002
+    },
+    "LeftIndex": {
+      "weighted_vertices": 552,
+      "max_displacement_m": 0.13251358999761642
+    },
+    "RightIndex": {
+      "weighted_vertices": 527,
+      "max_displacement_m": 0.13493302701361626
+    },
+    "LeftMiddle": {
+      "weighted_vertices": 540,
+      "max_displacement_m": 0.12986041621477526
+    },
+    "RightMiddle": {
+      "weighted_vertices": 549,
+      "max_displacement_m": 0.1329510296830007
+    },
+    "LeftRing": {
+      "weighted_vertices": 542,
+      "max_displacement_m": 0.13518415099916062
+    },
+    "RightRing": {
+      "weighted_vertices": 574,
+      "max_displacement_m": 0.1374738730161256
+    },
+    "LeftPinky": {
+      "weighted_vertices": 391,
+      "max_displacement_m": 0.11239362001421414
+    },
+    "RightPinky": {
+      "weighted_vertices": 430,
+      "max_displacement_m": 0.1149407912120226
+    }
+  },
+  "original_clips_unchanged": true,
+  "body_animation_checks": {
+    "Robot_OriginalMotion_FingerRig.glb": {
+      "max_body_vertex_error_m": 0,
+      "preserved_original_clips": 2
+    },
+    "Robot_Running_FingerRig.glb": {
+      "max_body_vertex_error_m": 0,
+      "preserved_original_clips": 2
+    },
+    "Robot_Walking_FingerRig.glb": {
+      "max_body_vertex_error_m": 0,
+      "preserved_original_clips": 2
+    }
+  }
+}

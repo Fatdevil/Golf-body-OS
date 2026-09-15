@@ -496,7 +496,7 @@ function generate240FpsFaceOnSequence(
     let lateralOffset = 0;
     if (swingType === 'SWAY' && i > 40 && i <= 230) {
       const prog = (i - 40) / 190;
-      lateralOffset = Math.sin(prog * Math.PI) * 0.06;
+      lateralOffset = Math.sin((prog * Math.PI) / 2) * 0.06;
     }
 
     // Early extension Z offset at impact

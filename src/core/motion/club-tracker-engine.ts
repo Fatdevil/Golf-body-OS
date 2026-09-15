@@ -93,8 +93,12 @@ export class ClubTrackerEngine {
 
     switch (currentPhase) {
       case 'P1_ADDRESS': {
-        clubHeadX = this.viewAngle === 'FACE_ON' ? 0.50 : 0.34;
-        clubHeadY = 0.90;
+        const la = getLandmark(frame, LandmarkId.LEFT_ANKLE);
+        const ra = getLandmark(frame, LandmarkId.RIGHT_ANKLE);
+        const feetMidX = (la && ra) ? (la.x + ra.x) / 2 : (this.viewAngle === 'FACE_ON' ? 0.50 : 0.34);
+        const groundY = (la && ra) ? Math.max(la.y, ra.y) + 0.02 : 0.90;
+        clubHeadX = this.viewAngle === 'FACE_ON' ? feetMidX : (la ? la.x - 0.08 : 0.34);
+        clubHeadY = groundY;
         shaftAngleDeg = this.viewAngle === 'FACE_ON' ? 48 : 52;
         forwardShaftLeanDeg = 3.0;
         break;
@@ -138,8 +142,12 @@ export class ClubTrackerEngine {
         break;
       }
       case 'P7_IMPACT': {
-        clubHeadX = this.viewAngle === 'FACE_ON' ? 0.50 : 0.34;
-        clubHeadY = 0.90;
+        const la = getLandmark(frame, LandmarkId.LEFT_ANKLE);
+        const ra = getLandmark(frame, LandmarkId.RIGHT_ANKLE);
+        const feetMidX = (la && ra) ? (la.x + ra.x) / 2 : (this.viewAngle === 'FACE_ON' ? 0.50 : 0.34);
+        const groundY = (la && ra) ? Math.max(la.y, ra.y) + 0.02 : 0.90;
+        clubHeadX = this.viewAngle === 'FACE_ON' ? feetMidX : (la ? la.x - 0.08 : 0.34);
+        clubHeadY = groundY;
         shaftAngleDeg = 52;
         // Dynamic forward shaft lean: angle between wrist-clubhead line and vertical
         const dx = (this.isRightHanded ? 1 : -1) * (gripX - clubHeadX);
@@ -191,7 +199,8 @@ export class ClubTrackerEngine {
    */
   public compareAgainstGhost(
     userClub: ClubState,
-    ghostClub?: ClubState
+    ghostClub?: ClubState,
+    currentPhase?: SwingPhaseId
   ): ClubPlaneComparison {
     if (!ghostClub) {
       return {
@@ -202,8 +211,9 @@ export class ClubTrackerEngine {
     }
 
     const planeDeviation = Math.round(userClub.shaftAngleDeg - ghostClub.shaftAngleDeg);
-    // Over the top: club shaft is steeper than Tiger's slot plane by > 12° during downswing
-    const isOverTheTop = planeDeviation > 12;
+    // Over the top: club shaft is steeper than Tiger's slot plane by > 12° during downswing (P4 to P6)
+    const isDownswing = !currentPhase || currentPhase === 'P4_TOP' || currentPhase === 'P5_SHALLOW' || currentPhase === 'P6_DELIVERY';
+    const isOverTheTop = isDownswing && planeDeviation > 12;
 
     let forwardShaftLeanDiffDeg: number | undefined;
     if (userClub.forwardShaftLeanDeg !== undefined && ghostClub.forwardShaftLeanDeg !== undefined) {

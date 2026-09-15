@@ -15,7 +15,8 @@ import {
   CameraViewAngle,
   SwingKinematics,
   SwingPhaseId,
-  SwingFault
+  SwingFault,
+  SwingTempo
 } from '../types/golf-swing';
 import { interiorAngle } from './angle-calculator';
 
@@ -53,13 +54,14 @@ export function computeTransverseTurn(
   right: { x: number; z?: number },
   isRightHanded = true
 ): number {
-  const dx = Math.abs(right.x - left.x);
+  const dx = right.x - left.x;
   const zLeft = left.z ?? 0;
   const zRight = right.z ?? 0;
-  const dz = isRightHanded ? (zRight - zLeft) : (zLeft - zRight);
+  const dz = zRight - zLeft;
 
-  if (dx < 0.001 && Math.abs(dz) < 0.001) return 0;
-  return toDegrees(Math.atan2(dz, dx));
+  if (Math.abs(dx) < 0.001 && Math.abs(dz) < 0.001) return 0;
+  const deg = toDegrees(Math.atan2(dz, dx));
+  return isRightHanded ? deg : -deg;
 }
 
 /**
@@ -183,22 +185,102 @@ export function extractPhaseKinematics(
   const addrLH = getLandmark(addressFrame, LandmarkId.LEFT_HIP);
   const addrRH = getLandmark(addressFrame, LandmarkId.RIGHT_HIP);
 
+  // Helper to normalize angle difference into [-180, 180]
+  const angleDelta = (curr: number, addr: number) => {
+    let diff = (curr - addr) % 360;
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+    return diff;
+  };
+
   // 1. Shoulder & Pelvis Turn (Calibrated relative to address baseline)
   let shoulderTurn = 0;
   let pelvisTurn = 0;
 
   if (viewAngle === 'FACE_ON') {
-    shoulderTurn = (ls && rs) ? Math.round(computeTransverseTurn(ls, rs, isRightHanded)) : 0;
-    pelvisTurn = (lh && rh) ? Math.round(computeTransverseTurn(lh, rh, isRightHanded)) : 0;
+    // Foreshortening proxy from projected width in coronal plane (XY)
+    const addrShoulderWidth = (addrLS && addrRS) ? Math.abs(addrRS.x - addrLS.x) : 0.2;
+    const currShoulderWidth = (ls && rs) ? Math.abs(rs.x - ls.x) : 0.2;
+    const ratioS = Math.min(1.0, Math.max(0.0, currShoulderWidth / Math.max(0.05, addrShoulderWidth)));
+    const projST = toDegrees(Math.acos(ratioS));
+
+    const addrPelvisWidth = (addrLH && addrRH) ? Math.abs(addrRH.x - addrLH.x) : 0.15;
+    const currPelvisWidth = (lh && rh) ? Math.abs(rh.x - lh.x) : 0.15;
+    const ratioP = Math.min(1.0, Math.max(0.0, currPelvisWidth / Math.max(0.05, addrPelvisWidth)));
+    const projPT = toDegrees(Math.acos(ratioP));
+
+    const currST = (ls && rs) ? computeTransverseTurn(ls, rs, isRightHanded) : 0;
+    const addrST = (addrLS && addrRS) ? computeTransverseTurn(addrLS, addrRS, isRightHanded) : 0;
+    const zST = angleDelta(currST, addrST);
+
+    const currPT = (lh && rh) ? computeTransverseTurn(lh, rh, isRightHanded) : 0;
+    const addrPT = (addrLH && addrRH) ? computeTransverseTurn(addrLH, addrRH, isRightHanded) : 0;
+    const zPT = angleDelta(currPT, addrPT);
+
+    // Coronal plane shoulder and pelvis tilt (in degrees from horizontal)
+    // When turning around a forward-tilted spine in backswing, the lead shoulder drops
+    // creating a 2D tilt that directly correlates with 3D torso turn (approx 2.5x coronal tilt).
+    const shoulderTiltDeg = (ls && rs)
+      ? toDegrees(Math.atan2(Math.abs(rs.y - ls.y), Math.max(0.01, Math.abs(rs.x - ls.x))))
+      : 0;
+    const addrShoulderTiltDeg = (addrLS && addrRS)
+      ? toDegrees(Math.atan2(Math.abs(addrRS.y - addrLS.y), Math.max(0.01, Math.abs(addrRS.x - addrLS.x))))
+      : 0;
+    const deltaShoulderTilt = Math.max(0, shoulderTiltDeg - addrShoulderTiltDeg);
+    const tiltST = Math.min(105, deltaShoulderTilt * 2.55);
+
+    const pelvisTiltDeg = (lh && rh)
+      ? toDegrees(Math.atan2(Math.abs(rh.y - lh.y), Math.max(0.01, Math.abs(rh.x - lh.x))))
+      : 0;
+    const addrPelvisTiltDeg = (addrLH && addrRH)
+      ? toDegrees(Math.atan2(Math.abs(addrRH.y - addrLH.y), Math.max(0.01, Math.abs(addrRH.x - addrLH.x))))
+      : 0;
+    const deltaPelvisTilt = Math.max(0, pelvisTiltDeg - addrPelvisTiltDeg);
+    const tiltPT = Math.min(65, deltaPelvisTilt * 2.5);
+
+    const isExactAddress = (frame === addressFrame) || (frame.frameId !== undefined && addressFrame.frameId !== undefined && frame.frameId === addressFrame.frameId);
+
+    // Determine turn direction (+ = backswing away from target, - = follow-through towards target)
+    let isBackswing = true;
+    if (phaseId === 'P7_IMPACT' || phaseId === 'P8_RELEASE' || phaseId === 'P9_REHINGE' || phaseId === 'P10_FINISH') {
+      isBackswing = false;
+    } else if (phaseId === 'P2_TAKEAWAY' || phaseId === 'P3_HALFWAY_BACK' || phaseId === 'P4_TOP' || phaseId === 'P5_SHALLOW' || phaseId === 'P6_DELIVERY') {
+      isBackswing = true;
+    } else if (isExactAddress) {
+      isBackswing = true;
+    } else {
+      const currHand = getMidpoint(getLandmark(frame, LandmarkId.LEFT_WRIST) || { x: 0.5, y: 0.5 }, getLandmark(frame, LandmarkId.RIGHT_WRIST) || { x: 0.5, y: 0.5 });
+      const addrHand = getMidpoint(getLandmark(addressFrame, LandmarkId.LEFT_WRIST) || { x: 0.5, y: 0.5 }, getLandmark(addressFrame, LandmarkId.RIGHT_WRIST) || { x: 0.5, y: 0.5 });
+      isBackswing = isRightHanded ? (currHand.x >= addrHand.x - 0.03) : (currHand.x <= addrHand.x + 0.03);
+    }
+
+    const sign = isBackswing ? 1 : -1;
+    let magST = 0;
+    let magPT = 0;
+
+    if (isBackswing) {
+      // In backswing: 2D coronal tilt (lead shoulder drop) provides a strong proxy for 3D turn around tilted spine
+      magST = Math.min(105, Math.max(Math.abs(zST), Math.max(projST, tiltST)));
+      magPT = Math.min(50, Math.max(Math.abs(zPT), Math.max(projPT, tiltPT)));
+    } else {
+      // In downswing and follow-through: use direct transverse turn & projected body clearing
+      const zMagST = Math.abs(zST) > 10 ? Math.abs(zST) : projST;
+      const zMagPT = Math.abs(zPT) > 10 ? Math.abs(zPT) : projPT;
+      magST = Math.min(100, Math.max(zMagST, projST));
+      magPT = Math.min(75, Math.max(zMagPT, projPT));
+    }
+
+    shoulderTurn = isExactAddress ? 0 : Math.round(sign * magST);
+    pelvisTurn = isExactAddress ? 0 : Math.round(sign * magPT);
   } else {
     // In DTL: Transverse rotation is relative to address target line alignment
     const currST = (ls && rs) ? computeTransverseTurn(ls, rs, isRightHanded) : 0;
     const addrST = (addrLS && addrRS) ? computeTransverseTurn(addrLS, addrRS, isRightHanded) : 0;
-    shoulderTurn = Math.round(currST - addrST);
+    shoulderTurn = Math.round(angleDelta(currST, addrST));
 
     const currPT = (lh && rh) ? computeTransverseTurn(lh, rh, isRightHanded) : 0;
     const addrPT = (addrLH && addrRH) ? computeTransverseTurn(addrLH, addrRH, isRightHanded) : 0;
-    pelvisTurn = Math.round(currPT - addrPT);
+    pelvisTurn = Math.round(angleDelta(currPT, addrPT));
   }
 
   const xFactor = shoulderTurn - pelvisTurn;
@@ -247,9 +329,11 @@ export function extractPhaseKinematics(
 
   let lateralHeadSway = 0;
   let headVerticalDip = 0;
-  let stanceWidth = 0.5;
-  if (la && ra) {
-    stanceWidth = Math.abs(ra.x - la.x) || 0.5;
+  let stanceWidth = 0.25;
+  if (viewAngle === 'FACE_ON' && la && ra) {
+    stanceWidth = Math.max(0.15, Math.abs(ra.x - la.x));
+  } else if (addrLH && addrLS) {
+    stanceWidth = Math.max(0.20, Math.abs(addrLH.y - addrLS.y) * 0.7);
   }
   if (addrHeadCenter && currHeadCenter) {
     // Normalised to stance width percentage
@@ -271,10 +355,20 @@ export function extractPhaseKinematics(
 
   // 7. Pelvis Thrust (Towards Ball / Early Extension in DTL view or Z displacement)
   let pelvisThrust = 0;
-  if (addrLH && addrRH && lh && rh) {
-    const addrZ = ((addrLH.z ?? 0) + (addrRH.z ?? 0)) / 2;
-    const currZ = ((lh.z ?? 0) + (rh.z ?? 0)) / 2;
-    pelvisThrust = Math.round((currZ - addrZ) * 100);
+  if (viewAngle === 'DOWN_THE_LINE') {
+    if (addrLH && addrRH && lh && rh) {
+      const isButtOnRight = isRightHanded;
+      const addrHipX = isButtOnRight ? Math.max(addrLH.x, addrRH.x) : Math.min(addrLH.x, addrRH.x);
+      const currHipX = isButtOnRight ? Math.max(lh.x, rh.x) : Math.min(lh.x, rh.x);
+      const thrustX = isButtOnRight ? (addrHipX - currHipX) : (currHipX - addrHipX);
+      pelvisThrust = Math.round((thrustX / stanceWidth) * 100);
+    }
+  } else {
+    if (addrLH && addrRH && lh && rh) {
+      const addrZ = ((addrLH.z ?? 0) + (addrRH.z ?? 0)) / 2;
+      const currZ = ((lh.z ?? 0) + (rh.z ?? 0)) / 2;
+      pelvisThrust = Math.round((currZ - addrZ) * 100);
+    }
   }
 
   return {
@@ -305,7 +399,8 @@ export function extractPhaseKinematics(
  */
 export function detectSwingFaults(
   kinematics: Record<SwingPhaseId, SwingKinematics>,
-  viewAngle: CameraViewAngle
+  viewAngle: CameraViewAngle,
+  isRightHanded = true
 ): SwingFault[] {
   const faults: SwingFault[] = [];
 
@@ -341,9 +436,15 @@ export function detectSwingFaults(
 
   // 2. Sway in Backswing (P4)
   // Lateral movement of pelvis/head away from target by > 15% of stance width
-  if (p4) {
-    if (p4.lateralPelvisShift < -15 || p4.lateralHeadSway < -15) {
-      const swayVal = Math.max(Math.abs(p4.lateralPelvisShift), Math.abs(p4.lateralHeadSway));
+  // In Face-On:
+  // For right-handed, target is -X (left), trail side is +X (right). Sway = shift > +15%.
+  // For left-handed, target is +X (right), trail side is -X (left). Sway = shift < -15%.
+  if (p4 && viewAngle === 'FACE_ON') {
+    const isSway = isRightHanded
+      ? ((p4.lateralPelvisShift ?? 0) > 15 || (p4.lateralHeadSway ?? 0) > 15)
+      : ((p4.lateralPelvisShift ?? 0) < -15 || (p4.lateralHeadSway ?? 0) < -15);
+    if (isSway) {
+      const swayVal = Math.max(Math.abs(p4.lateralPelvisShift ?? 0), Math.abs(p4.lateralHeadSway ?? 0));
       faults.push({
         id: 'SWAY_BACKSWING',
         name: { 'sv-SE': 'Höftsvaj i baksvingen (Sway)', 'en-US': 'Backswing Sway' },
@@ -366,19 +467,26 @@ export function detectSwingFaults(
 
   // 3. Reverse Spine Angle (P4)
   // Upper body tilts backward toward target at the top of backswing
+  // In Face-On:
+  // Normal spine tilt at address has shoulders neutral or tilted slightly away from target.
+  // Leaning toward target at P4 means negative tilt for right-handed (< -5°), or significant loss of secondary tilt.
   if (p4 && p1) {
-    if (viewAngle === 'FACE_ON' && p4.spineInclination > 10) {
+    const isReverseSpine = isRightHanded
+      ? (p4.spineInclination < -5 || (p1.spineInclination - p4.spineInclination) > 12)
+      : (p4.spineInclination > 5 || (p4.spineInclination - p1.spineInclination) > 12);
+    if (viewAngle === 'FACE_ON' && isReverseSpine) {
+      const metricValue = Math.round(Math.abs(p4.spineInclination) * 10) / 10;
       faults.push({
         id: 'REVERSE_SPINE',
         name: { 'sv-SE': 'Omvänd ryggradsvinkel (Reverse Spine)', 'en-US': 'Reverse Spine Angle' },
-        severity: p4.spineInclination > 15 ? 'HIGH' : 'MEDIUM',
+        severity: metricValue > 12 ? 'HIGH' : 'MEDIUM',
         phaseDetected: 'P4_TOP',
-        metricValue: p4.spineInclination,
+        metricValue,
         threshold: 10,
         unit: '°',
         description: {
-          'sv-SE': `Överkroppen lutar ${p4.spineInclination}° mot målet vid toppen av baksvingen, vilket sätter hög belastning på ländryggen och leder till slice eller pull.`,
-          'en-US': `Torso tilts ${p4.spineInclination}° toward target at the top of swing, causing excessive lumbar shear stress and pulled/sliced shots.`
+          'sv-SE': `Överkroppen lutar ${metricValue}° mot målet vid toppen av baksvingen, vilket sätter hög belastning på ländryggen och leder till slice eller pull.`,
+          'en-US': `Torso tilts ${metricValue}° toward target at the top of swing, causing excessive lumbar shear stress and pulled/sliced shots.`
         },
         relatedBodyLimitation: {
           'sv-SE': 'Begränsad bröstryggsrotation gör att ryggraden tvingas böjas bakåt/i sidled för att få upp klubban.',
@@ -442,23 +550,30 @@ export function detectSwingFaults(
 
 /**
  * Calculates swing tempo (backswing ms, downswing ms, and ratio).
+ * Accepts optional timeScaleFactor (e.g. 4 for 120fps slow-mo or 8 for 240fps slow-mo)
+ * to normalize recorded timestamps to actual real-world milliseconds.
  */
 export function calculateSwingTempo(
   p1: { timestampMs: number },
   p4: { timestampMs: number },
-  p7: { timestampMs: number }
-) {
-  const backswingDurationMs = Math.max(1, p4.timestampMs - p1.timestampMs);
-  const downswingDurationMs = Math.max(1, p7.timestampMs - p4.timestampMs);
+  p7: { timestampMs: number },
+  timeScaleFactor = 1.0
+): SwingTempo {
+  const factor = Math.max(0.1, timeScaleFactor);
+  const rawBackswingMs = Math.max(1, p4.timestampMs - p1.timestampMs);
+  const rawDownswingMs = Math.max(1, p7.timestampMs - p4.timestampMs);
+
+  const backswingDurationMs = Math.round(rawBackswingMs / factor);
+  const downswingDurationMs = Math.round(rawDownswingMs / factor);
   const totalDurationMs = backswingDurationMs + downswingDurationMs;
   const ratio = Math.round((backswingDurationMs / downswingDurationMs) * 10) / 10;
 
   let rating: 'EXCELLENT' | 'GOOD' | 'FAST_BACKSWING' | 'SLOW_BACKSWING' = 'GOOD';
-  if (ratio >= 2.7 && ratio <= 3.3) {
-    rating = 'EXCELLENT'; // Tour benchmark ~3.0:1
-  } else if (ratio < 2.3) {
+  if (ratio >= 2.5 && ratio <= 3.5) {
+    rating = 'EXCELLENT'; // Tour benchmark ~3.0:1 (2.5:1 - 3.5:1)
+  } else if (ratio < 2.1) {
     rating = 'FAST_BACKSWING';
-  } else if (ratio > 3.7) {
+  } else if (ratio > 4.0) {
     rating = 'SLOW_BACKSWING';
   }
 

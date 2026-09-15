@@ -1,0 +1,278 @@
+{
+  "Robot_OriginalMotion_FingerRig.glb": {
+    "LeftThumb": {
+      "vertices": 583,
+      "max_attachment": 1.0,
+      "slots": [
+        27,
+        28,
+        29
+      ]
+    },
+    "LeftIndex": {
+      "vertices": 630,
+      "max_attachment": 1.0,
+      "slots": [
+        30,
+        31,
+        32
+      ]
+    },
+    "LeftMiddle": {
+      "vertices": 570,
+      "max_attachment": 1.0,
+      "slots": [
+        33,
+        34,
+        35
+      ]
+    },
+    "LeftRing": {
+      "vertices": 574,
+      "max_attachment": 1.0,
+      "slots": [
+        36,
+        37,
+        38
+      ]
+    },
+    "LeftPinky": {
+      "vertices": 462,
+      "max_attachment": 1.0,
+      "slots": [
+        39,
+        40,
+        41
+      ]
+    },
+    "RightThumb": {
+      "vertices": 650,
+      "max_attachment": 1.0,
+      "slots": [
+        42,
+        43,
+        44
+      ]
+    },
+    "RightIndex": {
+      "vertices": 602,
+      "max_attachment": 1.0,
+      "slots": [
+        45,
+        46,
+        47
+      ]
+    },
+    "RightMiddle": {
+      "vertices": 574,
+      "max_attachment": 1.0,
+      "slots": [
+        48,
+        49,
+        50
+      ]
+    },
+    "RightRing": {
+      "vertices": 603,
+      "max_attachment": 1.0,
+      "slots": [
+        51,
+        52,
+        53
+      ]
+    },
+    "RightPinky": {
+      "vertices": 492,
+      "max_attachment": 1.0,
+      "slots": [
+        54,
+        55,
+        56
+      ]
+    }
+  },
+  "Robot_Running_FingerRig.glb": {
+    "LeftThumb": {
+      "vertices": 583,
+      "max_attachment": 1.0,
+      "slots": [
+        27,
+        28,
+        29
+      ]
+    },
+    "LeftIndex": {
+      "vertices": 630,
+      "max_attachment": 1.0,
+      "slots": [
+        30,
+        31,
+        32
+      ]
+    },
+    "LeftMiddle": {
+      "vertices": 570,
+      "max_attachment": 1.0,
+      "slots": [
+        33,
+        34,
+        35
+      ]
+    },
+    "LeftRing": {
+      "vertices": 574,
+      "max_attachment": 1.0,
+      "slots": [
+        36,
+        37,
+        38
+      ]
+    },
+    "LeftPinky": {
+      "vertices": 462,
+      "max_attachment": 1.0,
+      "slots": [
+        39,
+        40,
+        41
+      ]
+    },
+    "RightThumb": {
+      "vertices": 650,
+      "max_attachment": 1.0,
+      "slots": [
+        42,
+        43,
+        44
+      ]
+    },
+    "RightIndex": {
+      "vertices": 602,
+      "max_attachment": 1.0,
+      "slots": [
+        45,
+        46,
+        47
+      ]
+    },
+    "RightMiddle": {
+      "vertices": 574,
+      "max_attachment": 1.0,
+      "slots": [
+        48,
+        49,
+        50
+      ]
+    },
+    "RightRing": {
+      "vertices": 603,
+      "max_attachment": 1.0,
+      "slots": [
+        51,
+        52,
+        53
+      ]
+    },
+    "RightPinky": {
+      "vertices": 492,
+      "max_attachment": 1.0,
+      "slots": [
+        54,
+        55,
+        56
+      ]
+    }
+  },
+  "Robot_Walking_FingerRig.glb": {
+    "LeftThumb": {
+      "vertices": 583,
+      "max_attachment": 1.0,
+      "slots": [
+        27,
+        28,
+        29
+      ]
+    },
+    "LeftIndex": {
+      "vertices": 630,
+      "max_attachment": 1.0,
+      "slots": [
+        30,
+        31,
+        32
+      ]
+    },
+    "LeftMiddle": {
+      "vertices": 570,
+      "max_attachment": 1.0,
+      "slots": [
+        33,
+        34,
+        35
+      ]
+    },
+    "LeftRing": {
+      "vertices": 574,
+      "max_attachment": 1.0,
+      "slots": [
+        36,
+        37,
+        38
+      ]
+    },
+    "LeftPinky": {
+      "vertices": 462,
+      "max_attachment": 1.0,
+      "slots": [
+        39,
+        40,
+        41
+      ]
+    },
+    "RightThumb": {
+      "vertices": 650,
+      "max_attachment": 1.0,
+      "slots": [
+        42,
+        43,
+        44
+      ]
+    },
+    "RightIndex": {
+      "vertices": 602,
+      "max_attachment": 1.0,
+      "slots": [
+        45,
+        46,
+        47
+      ]
+    },
+    "RightMiddle": {
+      "vertices": 574,
+      "max_attachment": 1.0,
+      "slots": [
+        48,
+        49,
+        50
+      ]
+    },
+    "RightRing": {
+      "vertices": 603,
+      "max_attachment": 1.0,
+      "slots": [
+        51,
+        52,
+        53
+      ]
+    },
+    "RightPinky": {
+      "vertices": 492,
+      "max_attachment": 1.0,
+      "slots": [
+        54,
+        55,
+        56
+      ]
+    }
+  }
+}

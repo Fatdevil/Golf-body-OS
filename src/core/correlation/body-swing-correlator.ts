@@ -21,6 +21,13 @@ export class BodySwingCorrelator {
   /**
    * Correlates physical screening results with golf swing analysis results.
    */
+  public static correlate(
+    bodyResult: GolfBodyScoreResult | null,
+    swingResult: GolfSwingAnalysisResult
+  ): BodySwingCorrelation[] {
+    return new BodySwingCorrelator().correlate(bodyResult, swingResult);
+  }
+
   public correlate(
     bodyResult: GolfBodyScoreResult | null,
     swingResult: GolfSwingAnalysisResult
@@ -31,12 +38,13 @@ export class BodySwingCorrelator {
       return correlations;
     }
 
-    const { hipHinge, thoracic } = bodyResult;
+    const hipHinge = bodyResult.hipHinge;
+    const thoracic = (bodyResult as any).thoracic || (bodyResult as any).thoracicRotation;
     const detectedFaultIds = new Set(swingResult.faults.map(f => f.id));
 
     // 1. Hip Hinge vs Early Extension & Loss of Posture
     if (detectedFaultIds.has('EARLY_EXTENSION') || detectedFaultIds.has('LOSS_OF_POSTURE')) {
-      const hingeScore = hipHinge.total; // out of 50
+      const hingeScore = hipHinge?.total ?? 50; // out of 50
       if (hingeScore < 38) {
         correlations.push({
           bodyTest: 'HIP_HINGE',
@@ -59,9 +67,9 @@ export class BodySwingCorrelator {
     }
 
     // 2. Thoracic Rotation vs Over-Rotation of Pelvis at Top (P4)
-    if (detectedFaultIds.has('OVER_ROTATION_PELVIS')) {
+    if (detectedFaultIds.has('OVER_ROTATION_PELVIS') && thoracic) {
       const rotScore = thoracic.total; // out of 50
-      const maxTurn = Math.max(thoracic.maxLeft, thoracic.maxRight);
+      const maxTurn = Math.max(thoracic.maxLeft ?? 45, thoracic.maxRight ?? 45);
       if (rotScore < 38 || maxTurn < 38) {
         correlations.push({
           bodyTest: 'THORACIC_ROTATION',
@@ -72,8 +80,8 @@ export class BodySwingCorrelator {
             'en-US': 'Thoracic stiffness forces pelvic over-rotation in backswing'
           },
           explanation: {
-            'sv-SE': `Din bröstryggsrotation uppmättes till ${maxTurn}° (optimalt är 45°+). För att ändå nå upp till P4 (toppen) kompenserar kroppen genom att överrotera höfterna (${swingResult.kinematics.P4_TOP.pelvisTurn}°). Detta tömmer kroppen på torsionsspänning (X-Factor) och leder till timingproblem i nedsvingen.`,
-            'en-US': `Your thoracic rotation reached only ${maxTurn}° (optimal is 45°+). To achieve swing length at P4, your body compensates by over-rotating the pelvis to ${swingResult.kinematics.P4_TOP.pelvisTurn}°, collapsing elastic torque (X-Factor).`
+            'sv-SE': `Din bröstryggsrotation uppmättes till ${maxTurn}° (optimalt är 45°+). För att ändå nå upp till P4 (toppen) kompenserar kroppen genom att överrotera höfterna (${swingResult.kinematics.P4_TOP?.pelvisTurn ?? 55}°). Detta tömmer kroppen på torsionsspänning (X-Factor) och leder till timingproblem i nedsvingen.`,
+            'en-US': `Your thoracic rotation reached only ${maxTurn}° (optimal is 45°+). To achieve swing length at P4, your body compensates by over-rotating the pelvis to ${swingResult.kinematics.P4_TOP?.pelvisTurn ?? 55}°, collapsing elastic torque (X-Factor).`
           },
           prescription: {
             'sv-SE': 'Sittande bröstryggsrotationer med pinne över bröstet och knäppta knän för att isolera överkroppen från underkroppen.',
@@ -84,29 +92,31 @@ export class BodySwingCorrelator {
     }
 
     // 3. Thoracic Rotation vs Reverse Spine Angle (P4)
-    if (detectedFaultIds.has('REVERSE_SPINE')) {
+    if (detectedFaultIds.has('REVERSE_SPINE') && thoracic) {
       const rotScore = thoracic.total;
-      correlations.push({
-        bodyTest: 'THORACIC_ROTATION',
-        bodyScore: rotScore,
-        relatedSwingFaultId: 'REVERSE_SPINE',
-        title: {
-          'sv-SE': 'Begränsad bröstryggsrörlighet skapar omvänd ryggradsvinkel (Reverse Spine)',
-          'en-US': 'Thoracic limitation causes reverse spine angle'
-        },
-        explanation: {
-          'sv-SE': `När bröstryggen är stel kan överkroppen inte vrida sig runt ryggradens axel. Kroppen kompenserar genom att tilta ryggraden bakåt mot målet, vilket skapar skadlig kompression i ländryggen.`,
-          'en-US': `When the thoracic spine is stiff, the torso cannot rotate purely around the spinal axis, compensating by tilting backwards toward target and creating high lumbar shear stress.`
-        },
-        prescription: {
-          'sv-SE': 'Open-book stretch och skumrullning av bröstryggen innan spel för att öppna upp rotationsbanan.',
-          'en-US': 'Open-book stretches and thoracic foam rolling prior to play to free up rotation.'
-        }
-      });
+      if (rotScore < 38) {
+        correlations.push({
+          bodyTest: 'THORACIC_ROTATION',
+          bodyScore: rotScore,
+          relatedSwingFaultId: 'REVERSE_SPINE',
+          title: {
+            'sv-SE': 'Begränsad bröstryggsrörlighet skapar omvänd ryggradsvinkel (Reverse Spine)',
+            'en-US': 'Thoracic limitation causes reverse spine angle'
+          },
+          explanation: {
+            'sv-SE': `När bröstryggen är stel kan överkroppen inte vrida sig runt ryggradens axel. Kroppen kompenserar genom att tilta ryggraden bakåt mot målet, vilket skapar skadlig kompression i ländryggen.`,
+            'en-US': `When the thoracic spine is stiff, the torso cannot rotate purely around the spinal axis, compensating by tilting backwards toward target and creating high lumbar shear stress.`
+          },
+          prescription: {
+            'sv-SE': 'Open-book stretch och skumrullning av bröstryggen innan spel för att öppna upp rotationsbanan.',
+            'en-US': 'Open-book stretches and thoracic foam rolling prior to play to free up rotation.'
+          }
+        });
+      }
     }
 
     // 4. Rotational Asymmetry vs Sway / Slide
-    if (detectedFaultIds.has('SWAY_BACKSWING') || detectedFaultIds.has('SLIDE_DOWNSWING')) {
+    if ((detectedFaultIds.has('SWAY_BACKSWING') || detectedFaultIds.has('SLIDE_DOWNSWING')) && thoracic) {
       const asymmetry = thoracic.asymmetry;
       if (asymmetry > 8) {
         correlations.push({

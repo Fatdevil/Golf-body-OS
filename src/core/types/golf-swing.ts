@@ -198,7 +198,9 @@ export interface SwingTempo {
 export interface GolfSwingAnalysisResult {
   sessionId: string;
   viewAngle: CameraViewAngle;
+  isRightHanded?: boolean;
   detectedFrameRate: number;    // e.g. 240, 120, 60, 30
+  slowMotionFactor?: number;    // e.g. 1 (normal), 4 (120fps), 8 (240fps)
   totalFramesAnalyzed: number;
   durationMs: number;
   phases: Record<SwingPhaseId, SwingPhaseEvent>;
