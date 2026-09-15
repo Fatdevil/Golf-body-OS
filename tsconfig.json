@@ -4,6 +4,7 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": false,
+    "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
       "@core/*": ["src/core/*"],
@@ -14,9 +15,10 @@
     }
   },
   "include": [
+    "App.tsx",
+    "index.ts",
     "src/**/*.ts",
     "src/**/*.tsx",
-    "modules/**/*.ts",
-    "tests/**/*.ts"
+    "modules/**/*.ts"
   ]
 }

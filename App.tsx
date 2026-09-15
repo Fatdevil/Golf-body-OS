@@ -1,12 +1,18 @@
 /**
- * Golf Body OS — App Entry Point
+ * Golf Body OS — Main Application Entry Point
  *
- * Currently mounting DV-1A (Native Truth Validation) screen.
- * This will be replaced with proper navigation once DV-1A passes.
+ * Mounts the ScreeningProvider and AppShell with complete
+ * navigation (Dashboard, Screening Runner, History) and DV-1A diagnostics.
  */
 import React from 'react';
-import DV1AValidationScreen from './src/validation/DV1AValidationScreen';
+import { ScreeningProvider } from './src/context/ScreeningContext';
+import AppShell from './src/navigation/AppShell';
 
 export default function App() {
-  return <DV1AValidationScreen />;
+  return (
+    <ScreeningProvider>
+      <AppShell />
+    </ScreeningProvider>
+  );
 }
+
