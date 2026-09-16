@@ -37,12 +37,12 @@ function parseAndValidateLandmarks(flatArray: number[]): Landmark[] {
   const seenIds = new Set<number>();
 
   for (let i = 0; i < 198; i += 6) {
-    const id = flatArray[i];
-    const x = flatArray[i + 1];
-    const y = flatArray[i + 2];
-    const z = flatArray[i + 3];
-    const visibility = flatArray[i + 4];
-    const presence = flatArray[i + 5];
+    const id = flatArray[i]!;
+    const x = flatArray[i + 1]!;
+    const y = flatArray[i + 2]!;
+    const z = flatArray[i + 3]!;
+    const visibility = flatArray[i + 4]!;
+    const presence = flatArray[i + 5]!;
 
     if (!Number.isFinite(id) || !Number.isFinite(x) || !Number.isFinite(y) ||
         !Number.isFinite(z) || !Number.isFinite(visibility) || !Number.isFinite(presence)) {

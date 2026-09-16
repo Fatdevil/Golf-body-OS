@@ -248,7 +248,7 @@ export default function DV1AValidationScreen() {
     // In DV-1A we use a small solid-color image to prove MediaPipe can run
     // without crashing. Real camera frames come in DV-1B.
     // For a real validation, the user should be visible on camera.
-    if (initOk) {
+    if (initOk && modelInfo) {
       try {
         // Create a simple 640x480 RGB image (all gray)
         const width = 640;
@@ -269,7 +269,7 @@ export default function DV1AValidationScreen() {
         // Convert to PoseFrame via bridge (this validates the native payload)
         const frame = convertNativeResultToPoseFrame(
           nativeResult,
-          modelInfo!,
+          modelInfo,
           0,
         );
 

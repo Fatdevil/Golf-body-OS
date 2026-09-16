@@ -9,7 +9,7 @@
  * @version SCREENING_REPOSITORY_V1
  */
 
-import * as FileSystem from 'expo-file-system';
+import { File, Paths } from 'expo-file-system';
 import { GolfBodyTier } from '../core/metrics/golf-body-score';
 
 export const VERSION = 'SCREENING_REPOSITORY_V1';
@@ -50,6 +50,7 @@ export interface StoredScreeningSession {
     setsReps: string;
     description: string;
   }>;
+  isSimulated?: boolean;
 }
 
 const STORAGE_FILE_NAME = 'screening_history_v1.json';
@@ -57,18 +58,12 @@ const STORAGE_FILE_NAME = 'screening_history_v1.json';
 class ScreeningRepository {
   private cache: StoredScreeningSession[] = [];
   private isLoaded: boolean = false;
-  private memoryOnly: boolean = false;
 
-  constructor(memoryOnly = false) {
-    this.memoryOnly = memoryOnly;
-  }
+  constructor() {}
 
-  private getFilePath(): string | null {
-    if (this.memoryOnly) return null;
+  private getStorageFile(): File | null {
     try {
-      const docDir = (FileSystem as any).documentDirectory;
-      if (!docDir) return null;
-      return `${docDir}${STORAGE_FILE_NAME}`;
+      return new File(Paths.document, STORAGE_FILE_NAME);
     } catch {
       return null;
     }
@@ -82,16 +77,10 @@ class ScreeningRepository {
       return [...this.cache];
     }
 
-    const filePath = this.getFilePath();
-    if (!filePath) {
-      this.isLoaded = true;
-      return [...this.cache];
-    }
-
     try {
-      const info = await FileSystem.getInfoAsync(filePath);
-      if (info.exists) {
-        const content = await FileSystem.readAsStringAsync(filePath);
+      const file = this.getStorageFile();
+      if (file && file.exists) {
+        const content = file.textSync();
         const parsed = JSON.parse(content);
         if (Array.isArray(parsed)) {
           this.cache = parsed;
@@ -131,7 +120,7 @@ class ScreeningRepository {
   /**
    * Saves a new session to memory and persists to disk.
    */
-  public async saveSession(session: StoredScreeningSession): Promise<void> {
+  public async saveSession(session: StoredScreeningSession): Promise<{ success: boolean; error?: string }> {
     await this.loadSessions();
 
     // Deduplicate or insert
@@ -147,14 +136,17 @@ class ScreeningRepository {
       this.cache = this.cache.slice(0, 50);
     }
 
-    const filePath = this.getFilePath();
-    if (filePath) {
+    const file = this.getStorageFile();
+    if (file) {
       try {
-        await FileSystem.writeAsStringAsync(filePath, JSON.stringify(this.cache, null, 2));
-      } catch (err) {
-        console.warn('[ScreeningRepository] Could not write session to disk:', err);
+        file.write(JSON.stringify(this.cache, null, 2));
+        return { success: true };
+      } catch (err: any) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     }
+    
+    return { success: false, error: 'Storage file not available' };
   }
 
   /**
@@ -163,16 +155,14 @@ class ScreeningRepository {
   public async clearHistory(): Promise<void> {
     this.cache = [];
     this.isLoaded = true;
-    const filePath = this.getFilePath();
-    if (filePath) {
-      try {
-        const info = await FileSystem.getInfoAsync(filePath);
-        if (info.exists) {
-          await FileSystem.deleteAsync(filePath);
-        }
-      } catch (err) {
-        console.warn('[ScreeningRepository] Could not delete session file:', err);
+    
+    try {
+      const file = this.getStorageFile();
+      if (file && file.exists) {
+        file.delete();
       }
+    } catch (err) {
+      console.warn('[ScreeningRepository] Could not delete session file:', err);
     }
   }
 }

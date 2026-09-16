@@ -53,6 +53,10 @@ export default function ActiveScreeningScreen() {
   const liveHingeEngineRef = useRef<LiveCoachingEngine | null>(null);
   const liveRotationEngineRef = useRef<LiveRotationCoachingEngine | null>(null);
 
+  // Interval tracking for proper cleanup
+  const simulationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isRunningRef = useRef<boolean>(false);
+
   // Initialize audio coach & engines
   useEffect(() => {
     const coach = new AudioCoachService({ defaultLanguage: language });
@@ -81,6 +85,12 @@ export default function ActiveScreeningScreen() {
 
     return () => {
       coach.cancel();
+      // Clear any running simulation interval on unmount
+      if (simulationIntervalRef.current) {
+        clearInterval(simulationIntervalRef.current);
+        simulationIntervalRef.current = null;
+        isRunningRef.current = false;
+      }
     };
   }, [language]);
 
@@ -165,11 +175,17 @@ export default function ActiveScreeningScreen() {
       });
     }
 
+    // Normalize score for individual tests (single pillar maxes at 50, not 100)
+    const isIndividualTest = activeTestType === 'HIP_HINGE' || activeTestType === 'THORACIC_ROTATION';
+    const normalizedScore = isIndividualTest
+      ? Math.min(100, bodyScore.totalScore * 2)
+      : bodyScore.totalScore;
+
     const session: StoredScreeningSession = {
       id: `session_${Date.now()}`,
       timestampMs: Date.now(),
       testType: activeTestType || 'FULL_BATTERY',
-      golfBodyScore: bodyScore.totalScore,
+      golfBodyScore: normalizedScore,
       tier: bodyScore.tier,
       tierLabel: bodyScore.tierLabel,
       tierColor: bodyScore.tierColor,
@@ -210,7 +226,8 @@ export default function ActiveScreeningScreen() {
           setsReps: '2 set × 6 andetag',
           description: 'Öka den aktiva rotationsförmågan i bröstkorgen.'
         }
-      ]
+      ],
+      isSimulated: true,
     };
 
     finishScreening(session);
@@ -218,6 +235,9 @@ export default function ActiveScreeningScreen() {
 
   // Automated Simulation Runner for testing and demo
   const runSimulation = () => {
+    // Guard against multiple concurrent simulations (ref-based, synchronous)
+    if (isRunningRef.current) return;
+    isRunningRef.current = true;
     setIsSimulating(true);
     let step = 0;
 
@@ -242,6 +262,8 @@ export default function ActiveScreeningScreen() {
           setRepCount(3);
           setLastCue('Repetition 3 av 3 slutförd!');
           clearInterval(interval);
+          simulationIntervalRef.current = null;
+          isRunningRef.current = false;
           setIsSimulating(false);
           handleHingeComplete();
         }
@@ -255,11 +277,16 @@ export default function ActiveScreeningScreen() {
         } else {
           setLastCue('Rotationstest klart!');
           clearInterval(interval);
+          simulationIntervalRef.current = null;
+          isRunningRef.current = false;
           setIsSimulating(false);
           handleRotationComplete();
         }
       }
     }, 150);
+
+    // Store interval ID in ref for cleanup
+    simulationIntervalRef.current = interval;
   };
 
   return (

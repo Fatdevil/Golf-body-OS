@@ -33,7 +33,8 @@ export default function ScreeningResultScreen() {
     subScores,
     angles,
     predictedSwingFaults,
-    prescribedExercises
+    prescribedExercises,
+    isSimulated
   } = currentResult;
 
   const handleReturnToDashboard = () => {
@@ -43,6 +44,15 @@ export default function ScreeningResultScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Simulation Warning Banner */}
+      {isSimulated && (
+        <View style={styles.simulationBanner}>
+          <Text style={styles.simulationBannerText}>
+            ⚠️ SIMULERAT RESULTAT — Dessa värden är genererade utan kamera och speglar inte din kropp.
+          </Text>
+        </View>
+      )}
+
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>SCREENINGRESULTAT</Text>
@@ -157,7 +167,7 @@ export default function ScreeningResultScreen() {
 
       {/* Return to Dashboard Button */}
       <Pressable style={styles.primaryButton} onPress={handleReturnToDashboard}>
-        <Text style={styles.primaryButtonText}>Spara och gå till Dashboard</Text>
+        <Text style={styles.primaryButtonText}>Gå till Dashboard</Text>
       </Pressable>
     </ScrollView>
   );
@@ -171,6 +181,21 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     paddingBottom: 40,
+  },
+  simulationBanner: {
+    backgroundColor: '#78350F',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  simulationBannerText: {
+    color: '#FDE68A',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 18,
   },
   emptyContainer: {
     flex: 1,

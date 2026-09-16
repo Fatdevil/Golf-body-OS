@@ -9,6 +9,7 @@ Pod::Spec.new do |s|
   s.platforms      = { :ios => '16.4' }
   s.source         = { :git => '' }
   s.source_files   = '**/*.swift'
+  s.resources      = ['pose_landmarker_full.task']
   s.swift_version  = '5.9'
 
   s.dependency 'ExpoModulesCore'

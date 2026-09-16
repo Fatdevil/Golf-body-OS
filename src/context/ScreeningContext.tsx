@@ -64,7 +64,7 @@ export function ScreeningProvider({ children }: { children: ReactNode }) {
     try {
       const all = await screeningRepository.getSessions();
       setSessions(all);
-      setLatestSession(all.length > 0 ? all[0] : null);
+      setLatestSession(all.length > 0 ? (all[0] ?? null) : null);
     } finally {
       setIsLoading(false);
     }
