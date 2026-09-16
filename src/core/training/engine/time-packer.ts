@@ -13,7 +13,7 @@
  * @module time-packer
  */
 
-import type { FocusMode } from '../types/golf-context';
+import type { FocusMode, GolfContext } from '../types/golf-context';
 import type { ExerciseAssignment } from '../types/daily-plan';
 import type { ExerciseCategory } from '../types/exercise';
 import type { ExerciseMatch } from './exercise-matcher';
@@ -77,11 +77,24 @@ export function packExercisesIntoTime(
   matches: ExerciseMatch[],
   timeBudgetMinutes: number,
   focusMode: FocusMode,
+  context?: GolfContext,
 ): ExerciseAssignment[] {
   if (matches.length === 0) return [];
 
   const budgetSec = timeBudgetMinutes * 60;
-  const targetDist = DISTRIBUTIONS[focusMode];
+  
+  // Clone distribution to modify it if needed
+  const targetDist = { ...DISTRIBUTIONS[focusMode] };
+  
+  // HARD CAP for strength/power if competition tomorrow
+  if (context?.golfTomorrow === 'COMPETITION') {
+    const strengthPowerCap = 0.10; // Max 10%
+    if (targetDist.STRENGTH > strengthPowerCap) {
+      const diff = targetDist.STRENGTH - strengthPowerCap;
+      targetDist.STRENGTH = strengthPowerCap;
+      targetDist.MOBILITY += diff; // Shift the rest to mobility
+    }
+  }
 
   // Track how much time is allocated per category
   const allocatedSec: Record<ExerciseCategory, number> = {
@@ -139,14 +152,18 @@ export function packExercisesIntoTime(
     );
     if (mobilityMatch) {
       const duration = estimateDuration(mobilityMatch);
-      // Replace the lowest-scored non-mobility exercise
+      // Try to replace the lowest-scored non-mobility exercise
       if (selected.length >= MAX_EXERCISES || totalAllocatedSec + duration > budgetSec) {
         const lowestIdx = selected.reduce((minIdx, s, idx, arr) =>
           s.match.matchScore < arr[minIdx].match.matchScore ? idx : minIdx, 0
         );
-        totalAllocatedSec -= selected[lowestIdx].durationSec;
-        selected[lowestIdx] = { match: mobilityMatch, durationSec: duration };
-        totalAllocatedSec += duration;
+        
+        // Only replace if the new total time still fits within budget
+        const newTotalSec = totalAllocatedSec - selected[lowestIdx].durationSec + duration;
+        if (newTotalSec <= budgetSec) {
+          totalAllocatedSec = newTotalSec;
+          selected[lowestIdx] = { match: mobilityMatch, durationSec: duration };
+        }
       } else {
         selected.push({ match: mobilityMatch, durationSec: duration });
         totalAllocatedSec += duration;

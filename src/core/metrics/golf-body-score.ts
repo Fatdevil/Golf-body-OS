@@ -53,6 +53,20 @@ export interface GolfBodyScoreResult {
 }
 
 /**
+ * Returns tier details based on total score.
+ */
+export function getTierDetailsForScore(totalScore: number, isSv: boolean): { tier: GolfBodyTier, tierLabel: string, tierColor: string } {
+  if (totalScore >= 90) {
+    return { tier: 'TOUR_ELITE', tierLabel: isSv ? 'Tour-nivå' : 'Tour Elite', tierColor: '#10B981' };
+  } else if (totalScore >= 75) {
+    return { tier: 'SOLID', tierLabel: isSv ? 'Stabil Golfkropp' : 'Solid Athletic', tierColor: '#3B82F6' };
+  } else if (totalScore >= 60) {
+    return { tier: 'MODERATE', tierLabel: isSv ? 'Måttlig Rörlighet' : 'Moderate Restr.', tierColor: '#F59E0B' };
+  }
+  return { tier: 'RESTRICTED', tierLabel: isSv ? 'Betydande Begränsning' : 'Restricted', tierColor: '#EF4444' };
+}
+
+/**
  * Calculates the complete Golf Body Score (0–100) from hip hinge and thoracic rotation results.
  */
 export function calculateGolfBodyScore(
@@ -199,27 +213,7 @@ export function calculateGolfBodyScore(
   const totalScore = Math.min(100, Math.max(0, hipHingeTotal + thoracicTotal));
 
   // --- TIER DETERMINATION ---
-  let tier: GolfBodyTier = 'RESTRICTED';
-  let tierLabel = '';
-  let tierColor = '#EF4444'; // Red
-
-  if (totalScore >= 90) {
-    tier = 'TOUR_ELITE';
-    tierLabel = isSv ? 'Tour-nivå' : 'Tour Elite';
-    tierColor = '#10B981'; // Green
-  } else if (totalScore >= 75) {
-    tier = 'SOLID';
-    tierLabel = isSv ? 'Stabil Golfkropp' : 'Solid Athletic';
-    tierColor = '#3B82F6'; // Blue
-  } else if (totalScore >= 60) {
-    tier = 'MODERATE';
-    tierLabel = isSv ? 'Måttlig Rörlighet' : 'Moderate Restr.';
-    tierColor = '#F59E0B'; // Amber
-  } else {
-    tier = 'RESTRICTED';
-    tierLabel = isSv ? 'Betydande Begränsning' : 'Restricted';
-    tierColor = '#EF4444'; // Red
-  }
+  const { tier, tierLabel, tierColor } = getTierDetailsForScore(totalScore, isSv);
 
   // --- STRENGTHS & BOTTLENECKS ---
   const keyStrengths: string[] = [];

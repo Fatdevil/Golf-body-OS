@@ -215,6 +215,7 @@ console.log(`${'═'.repeat(50)}\n`);
 
 if (failed > 0) {
   console.log('⚠️  Some assertions failed — review the engine logic.');
+  process.exitCode = 1;
 } else {
   console.log('✅ All scenarios passed — engine behaves as expected.\n');
 }

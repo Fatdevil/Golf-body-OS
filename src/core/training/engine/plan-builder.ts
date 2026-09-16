@@ -241,7 +241,7 @@ export function buildDailyPlan(
   const matches = matchExercises(priorities, library, state, history);
 
   // 3. Pack into available time
-  const exercises = packExercisesIntoTime(matches, context.timeBudget, context.focusMode);
+  const exercises = packExercisesIntoTime(matches, context.timeBudget, context.focusMode, context);
 
   // 4. Calculate distribution
   const distribution = calculateDistribution(exercises);

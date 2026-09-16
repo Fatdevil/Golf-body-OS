@@ -13,7 +13,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Play, Clock, Target as TargetIcon, Zap, Activity, Dumbbell, Wind, RefreshCw, AlertCircle } from 'lucide-react';
 import type { SupportedLanguage } from '../../../../src/core/coaching/i18n/locales';
 import type { BodyProfile } from '../../../../src/core/training/types/body-profile';
-import type { DailyState, BodyFeel } from '../../../../src/core/training/types/daily-state';
+import type { DailyState, BodyFeel, PainRegion, PainArea } from '../../../../src/core/training/types/daily-state';
 import type { GolfContext, FocusMode } from '../../../../src/core/training/types/golf-context';
 import type { DailyPlan } from '../../../../src/core/training/types/daily-plan';
 import { buildDailyPlan } from '../../../../src/core/training/engine/plan-builder';
@@ -33,6 +33,7 @@ export default function TodayScreen({ profile, language, onStartWorkout, onRetes
   // State
   // ---------------------------------------------------------------------------
   const [hasCheckedIn, setHasCheckedIn] = useState(false);
+  const [checkInStep, setCheckInStep] = useState<1 | 2>(1);
   
   // Base parameters for the engine
   const [dailyState, setDailyState] = useState<DailyState>({
@@ -77,7 +78,30 @@ export default function TodayScreen({ profile, language, onStartWorkout, onRetes
     if (feel === 'TIRED' || feel === 'STIFF') readiness = 3;
     if (feel === 'SORE') readiness = 2;
 
-    setDailyState(prev => ({ ...prev, bodyFeel: feel, perceivedReadiness: readiness as 1|2|3|4|5 }));
+    setDailyState(prev => ({ ...prev, bodyFeel: feel, perceivedReadiness: readiness as 1|2|3|4|5, painAreas: [] }));
+    setCheckInStep(2);
+  };
+
+  const handlePainToggle = (region: PainRegion) => {
+    setDailyState(prev => {
+      const exists = prev.painAreas.some(p => p.region === region);
+      if (exists) {
+        return { ...prev, painAreas: prev.painAreas.filter(p => p.region !== region) };
+      } else {
+        return { ...prev, painAreas: [...prev.painAreas, { region, intensity: prev.bodyFeel === 'SORE' ? 'SIGNIFICANT' : 'MODERATE' }] };
+      }
+    });
+  };
+
+  const handleGolfActivity = (type: 'NONE' | 'TODAY' | 'TOMORROW' | 'COMPETITION_TOMORROW') => {
+    setGolfContext(prev => ({
+      ...prev,
+      golfToday: type === 'TODAY' ? 'EIGHTEEN_HOLES' : 'NONE',
+      golfTomorrow: type === 'TOMORROW' ? 'EIGHTEEN_HOLES' : type === 'COMPETITION_TOMORROW' ? 'COMPETITION' : 'NONE'
+    }));
+  };
+
+  const finishCheckIn = () => {
     setHasCheckedIn(true);
   };
 
@@ -130,18 +154,105 @@ export default function TodayScreen({ profile, language, onStartWorkout, onRetes
         {/* 1. Daily Check-in (if not done) */}
         {!hasCheckedIn && (
           <div className="bg-gray-900 border border-gray-800 rounded-3xl p-6 shadow-xl animate-in fade-in slide-in-from-bottom-4">
-            <h2 className="text-lg font-bold text-white mb-4">{isSv ? 'Hur känns kroppen idag?' : 'How does your body feel today?'}</h2>
-            <div className="flex flex-wrap gap-2">
-              {(['FRESH', 'NORMAL', 'STIFF', 'TIRED', 'SORE'] as BodyFeel[]).map(feel => (
-                <button
-                  key={feel}
-                  onClick={() => handleBodyFeelClick(feel)}
-                  className="bg-gray-800 hover:bg-gray-700 text-gray-200 px-4 py-2.5 rounded-xl font-medium text-sm transition border border-gray-700 active:scale-95"
-                >
-                  {getFeelLabel(feel)}
-                </button>
-              ))}
-            </div>
+            
+            {checkInStep === 1 ? (
+              <>
+                <h2 className="text-lg font-bold text-white mb-4">{isSv ? 'Hur känns kroppen idag?' : 'How does your body feel today?'}</h2>
+                <div className="flex flex-wrap gap-2">
+                  {(['FRESH', 'NORMAL', 'STIFF', 'TIRED', 'SORE'] as BodyFeel[]).map(feel => (
+                    <button
+                      key={feel}
+                      onClick={() => handleBodyFeelClick(feel)}
+                      className="bg-gray-800 hover:bg-gray-700 text-gray-200 px-4 py-2.5 rounded-xl font-medium text-sm transition border border-gray-700 active:scale-95"
+                    >
+                      {getFeelLabel(feel)}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
+                {(dailyState.bodyFeel === 'STIFF' || dailyState.bodyFeel === 'SORE') && (
+                  <div>
+                    <h2 className="text-sm font-bold text-gray-300 mb-3 uppercase tracking-wider">{isSv ? 'Någon särskild smärta eller stelhet?' : 'Any specific pain or stiffness?'}</h2>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { id: 'LOWER_BACK', label: isSv ? 'Ländrygg' : 'Lower Back' },
+                        { id: 'UPPER_BACK', label: isSv ? 'Bröstrygg' : 'Upper Back' },
+                        { id: 'SHOULDER_RIGHT', label: isSv ? 'Höger Axel' : 'Right Shoulder' },
+                        { id: 'SHOULDER_LEFT', label: isSv ? 'Vänster Axel' : 'Left Shoulder' },
+                        { id: 'HIP_RIGHT', label: isSv ? 'Höger Höft' : 'Right Hip' },
+                        { id: 'HIP_LEFT', label: isSv ? 'Vänster Höft' : 'Left Hip' },
+                        { id: 'KNEE_RIGHT', label: isSv ? 'Höger Knä' : 'Right Knee' },
+                        { id: 'KNEE_LEFT', label: isSv ? 'Vänster Knä' : 'Left Knee' }
+                      ].map(region => {
+                        const isSelected = dailyState.painAreas.some(p => p.region === region.id);
+                        return (
+                          <button
+                            key={region.id}
+                            onClick={() => handlePainToggle(region.id as PainRegion)}
+                            className={`px-4 py-2 rounded-xl font-medium text-sm transition border ${
+                              isSelected 
+                                ? 'bg-red-500/10 border-red-500/50 text-red-400' 
+                                : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+                            }`}
+                          >
+                            {region.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                
+                <div>
+                  <h2 className="text-sm font-bold text-gray-300 mb-3 uppercase tracking-wider">{isSv ? 'Golfaktivitet?' : 'Golf activity?'}</h2>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { id: 'NONE', label: isSv ? 'Nej' : 'No' },
+                      { id: 'TODAY', label: isSv ? 'Spelar idag' : 'Playing today' },
+                      { id: 'TOMORROW', label: isSv ? 'Spelar imorgon' : 'Playing tomorrow' },
+                      { id: 'COMPETITION_TOMORROW', label: isSv ? 'Tävling imorgon' : 'Competition tomorrow' }
+                    ].map(activity => {
+                      const isActive = 
+                        (activity.id === 'NONE' && golfContext.golfToday === 'NONE' && golfContext.golfTomorrow === 'NONE') ||
+                        (activity.id === 'TODAY' && golfContext.golfToday !== 'NONE') ||
+                        (activity.id === 'TOMORROW' && golfContext.golfTomorrow === 'EIGHTEEN_HOLES') ||
+                        (activity.id === 'COMPETITION_TOMORROW' && golfContext.golfTomorrow === 'COMPETITION');
+                        
+                      return (
+                        <button
+                          key={activity.id}
+                          onClick={() => handleGolfActivity(activity.id as any)}
+                          className={`px-4 py-2 rounded-xl font-medium text-sm transition border ${
+                            isActive 
+                              ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' 
+                              : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+                          }`}
+                        >
+                          {activity.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    onClick={() => setCheckInStep(1)}
+                    className="px-6 py-3 rounded-xl font-bold text-sm bg-gray-800 text-gray-300 hover:bg-gray-700"
+                  >
+                    {isSv ? 'Tillbaka' : 'Back'}
+                  </button>
+                  <button 
+                    onClick={finishCheckIn}
+                    className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-gray-950 py-3 rounded-xl font-black text-sm transition"
+                  >
+                    {isSv ? 'SKAPA PASS' : 'CREATE PLAN'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

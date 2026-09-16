@@ -29,6 +29,7 @@ import type { DailyPlan } from '../../../src/core/training/types/daily-plan';
 import { screeningToProfile } from '../../../src/core/training/adapters/screening-to-profile';
 import { buildDailyPlan } from '../../../src/core/training/engine/plan-builder';
 import { EXERCISE_LIBRARY } from '../../../src/core/training/data/exercise-library';
+import { getTierDetailsForScore } from '../../../src/core/metrics/golf-body-score';
 
 type Tab = 'TODAY' | 'ANALYZE' | 'BODY';
 type AnalyzeSubScreen = 'IDLE' | 'SCREENING' | 'SWING';
@@ -136,10 +137,13 @@ export default function App() {
     setScreeningResult(result);
     saveToStorage(STORAGE_KEYS.RESULT, result);
 
+    const tierDetails = getTierDetailsForScore(result.totalScore, isSv);
+    
     const mockGolfScore = {
       totalScore: result.totalScore,
-      tier: (result.totalScore >= 85 ? 'TOUR_ELITE' : result.totalScore >= 65 ? 'SOLID' : result.totalScore >= 40 ? 'MODERATE' : 'RESTRICTED') as any,
-      tierLabel: '', tierColor: '',
+      tier: tierDetails.tier,
+      tierLabel: tierDetails.tierLabel, 
+      tierColor: tierDetails.tierColor,
       hipHinge: {
         total: result.stepResults.find(s => s.stepId === 'HIP_HINGE')?.pillarScore ?? 25,
         depthScore: 15, kneeScore: 8, spineScore: 5, avgHingeAngle: 95, avgKneeAngle: 155, compensations: [] as string[],
@@ -430,7 +434,11 @@ export default function App() {
             <ChevronDown size={12} className="opacity-50" />
           </button>
           {isDevMode && (
-            <button onClick={() => { clearStorage(); window.location.reload(); }} className="text-[10px] text-gray-600 hover:text-red-400">
+            <button onClick={() => { 
+              localStorage.removeItem(STORAGE_KEYS.PROFILE);
+              localStorage.removeItem(STORAGE_KEYS.RESULT);
+              window.location.reload(); 
+            }} className="text-[10px] text-gray-600 hover:text-red-400">
               RESET
             </button>
           )}

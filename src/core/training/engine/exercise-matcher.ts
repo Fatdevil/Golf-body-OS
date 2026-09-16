@@ -187,6 +187,20 @@ function checkProgression(
 function adjustDose(defaultDose: ExerciseDose, state: DailyState): ExerciseDose {
   const dose = { ...defaultDose };
 
+  // Hard safety reduction if pain is present (as promised by the engine)
+  if (state.painAreas.length > 0) {
+    const hasSignificant = state.painAreas.some(p => p.intensity === 'SIGNIFICANT');
+    const reductionFactor = hasSignificant ? 0.5 : 0.7; // 50% or 30% reduction
+
+    if (dose.sets > 1) dose.sets = Math.max(1, Math.floor(dose.sets * (hasSignificant ? 0.5 : 1)));
+    if (dose.reps) dose.reps = Math.max(3, Math.floor(dose.reps * reductionFactor));
+    if (dose.holdSeconds) dose.holdSeconds = Math.max(5, Math.floor(dose.holdSeconds * reductionFactor));
+    if (dose.rpe) dose.rpe = Math.max(1, dose.rpe - (hasSignificant ? 3 : 1));
+    
+    // Skip the regular body feel logic since pain overrides it with safety mode
+    return dose;
+  }
+
   switch (state.bodyFeel) {
     case 'FRESH':
       // Slightly increase
@@ -246,8 +260,8 @@ export function matchExercises(
 
   // 2. Score each exercise
   const scored: ExerciseMatch[] = safeExercises.map(exercise => {
-    // Check if we should progress/regress
-    const actualExercise = checkProgression(exercise, library, history);
+    // Check if we should progress/regress (only among safe exercises)
+    const actualExercise = checkProgression(exercise, safeExercises, history);
 
     // Score against priorities
     const { score, reasons } = scoreExercise(actualExercise, priorities);

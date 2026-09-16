@@ -11,7 +11,7 @@ interface CameraGuideOverlayProps {
   feedback: ReadinessFeedback | null;
   appState: AppTestState;
   language?: SupportedLanguage;
-  viewMode?: 'SIDE' | 'FRONT';
+  viewMode?: 'SIDE' | 'FRONT' | 'BACK';
   isBriefingActive?: boolean;
   onReplayBriefing?: () => void;
   onSkipBriefing?: () => void;
