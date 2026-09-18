@@ -73,9 +73,10 @@ function makeProfile(overrides?: Partial<BodyProfile>): BodyProfile {
     motorControl: makeDomain('MOTOR_CONTROL', [
       makeArea('trunk-control-poor', 15, 25, 'Trunk Control'),
     ]),
-    loadTolerance: makeDomain('LOAD_TOLERANCE', [
+    capacity: makeDomain('CAPACITY', [
       makeArea('glute-activation-poor', 12, 25, 'Glute Activation'),
     ]),
+    power: makeDomain('POWER', []),
     golfBodyScore: 47,
     golfBodyTier: 'MODERATE',
     primaryBottlenecks: [{

@@ -128,7 +128,7 @@ export class SplitSquatPhaseEngine {
         if (leadKneeAngle < this.config.descentInitiationAngle) {
           this.phase = 'DESCENT';
           this.currentRepStartFrame = this.lastStandingFrame > 0 ? this.lastStandingFrame : frameId;
-          this.currentRepStartTimestamp = this.lastStandingTimestamp > 0 ? this.lastStandingTimestamp : timestampMs;
+          this.currentRepStartTimestamp = this.lastStandingFrame > 0 ? this.lastStandingTimestamp : timestampMs;
           this.minKneeAngleInRep = leadKneeAngle;
           this.bottomFrameId = frameId;
           this.bottomTimestamp = timestampMs;

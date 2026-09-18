@@ -153,16 +153,24 @@ export function packExercisesIntoTime(
     if (mobilityMatch) {
       const duration = estimateDuration(mobilityMatch);
       // Try to replace the lowest-scored non-mobility exercise
-      if (selected.length >= MAX_EXERCISES || totalAllocatedSec + duration > budgetSec) {
-        const lowestIdx = selected.reduce((minIdx, s, idx, arr) =>
-          s.match.matchScore < arr[minIdx].match.matchScore ? idx : minIdx, 0
-        );
+      if (selected.length > 0 && (selected.length >= MAX_EXERCISES || totalAllocatedSec + duration > budgetSec)) {
+        let lowestIdx = 0;
+        for (let idx = 1; idx < selected.length; idx++) {
+          const s = selected[idx];
+          const currMin = selected[lowestIdx];
+          if (s && currMin && s.match.matchScore < currMin.match.matchScore) {
+            lowestIdx = idx;
+          }
+        }
         
-        // Only replace if the new total time still fits within budget
-        const newTotalSec = totalAllocatedSec - selected[lowestIdx].durationSec + duration;
-        if (newTotalSec <= budgetSec) {
-          totalAllocatedSec = newTotalSec;
-          selected[lowestIdx] = { match: mobilityMatch, durationSec: duration };
+        const lowestItem = selected[lowestIdx];
+        if (lowestItem) {
+          // Only replace if the new total time still fits within budget
+          const newTotalSec = totalAllocatedSec - lowestItem.durationSec + duration;
+          if (newTotalSec <= budgetSec) {
+            totalAllocatedSec = newTotalSec;
+            selected[lowestIdx] = { match: mobilityMatch, durationSec: duration };
+          }
         }
       } else {
         selected.push({ match: mobilityMatch, durationSec: duration });

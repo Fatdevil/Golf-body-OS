@@ -435,13 +435,15 @@ Answer the golfer concisely, warmly, and practically (2-4 paragraphs max).
 
     // Repetition progression
     let repProgression = '';
-    if (hipAngles.length >= 2) {
-      const diff = hipAngles[hipAngles.length - 1] - hipAngles[0];
+    const firstHip = hipAngles[0];
+    const lastHip = hipAngles[hipAngles.length - 1];
+    if (hipAngles.length >= 2 && firstHip !== undefined && lastHip !== undefined) {
+      const diff = lastHip - firstHip;
       if (isSv) {
         if (Math.abs(diff) < 6) {
           repProgression = 'Mycket hög repeterbarhet: repetition 1 och 3 skiljde sig med mindre än 6 grader, vilket visar god muskulär uthållighet.';
         } else if (diff < 0) {
-          repProgression = `Du ökade djupet successivt och nådde ${hipAngles[hipAngles.length - 1].toFixed(1)}° i sista repetitionen – fin anpassning!`;
+          repProgression = `Du ökade djupet successivt och nådde ${lastHip.toFixed(1)}° i sista repetitionen – fin anpassning!`;
         } else {
           repProgression = 'I första repetitionen nådde du djupare än i den sista, vilket tyder på lite trötthet i bålstabiliseringen mot slutet.';
         }
@@ -449,7 +451,7 @@ Answer the golfer concisely, warmly, and practically (2-4 paragraphs max).
         if (Math.abs(diff) < 6) {
           repProgression = 'Excellent repeatability: reps 1 and 3 varied by less than 6 degrees, showing solid muscular endurance.';
         } else if (diff < 0) {
-          repProgression = `You progressively deepened your hinge, reaching ${hipAngles[hipAngles.length - 1].toFixed(1)}° on the final rep – great adaptation!`;
+          repProgression = `You progressively deepened your hinge, reaching ${lastHip.toFixed(1)}° on the final rep – great adaptation!`;
         } else {
           repProgression = 'Repetition 1 was slightly deeper than repetition 3, suggesting slight core fatigue toward the finish.';
         }

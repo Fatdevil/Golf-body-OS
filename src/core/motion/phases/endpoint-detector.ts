@@ -50,6 +50,7 @@ export class EndpointDetector {
     for (let i = 1; i < this.frames.length; i++) {
       const prev = this.frames[i - 1];
       const curr = this.frames[i];
+      if (!prev || !curr) continue;
 
       const velocity = Math.abs(curr.angle - prev.angle);
       
@@ -79,15 +80,20 @@ export class EndpointDetector {
     if (bestWindow.length >= minStableFrames) {
       const angles = bestWindow.map(f => f.angle).sort((a, b) => a - b);
       const mid = Math.floor(angles.length / 2);
-      const median = angles.length % 2 !== 0 ? angles[mid] : (angles[mid - 1] + angles[mid]) / 2.0;
+      const midAngle = angles[mid] ?? 0;
+      const prevAngle = angles[mid - 1] ?? 0;
+      const median = angles.length % 2 !== 0 ? midAngle : (prevAngle + midAngle) / 2.0;
       
       const avgConfidence = bestWindow.reduce((sum, f) => sum + f.confidence, 0) / bestWindow.length;
+      const firstFrame = bestWindow[0];
+      const lastFrame = bestWindow[bestWindow.length - 1];
+      if (!firstFrame || !lastFrame) return null;
       
       return {
         value: median,
         stableFrameCount: bestWindow.length,
         confidence: avgConfidence,
-        frameRange: [bestWindow[0].frameId, bestWindow[bestWindow.length - 1].frameId]
+        frameRange: [firstFrame.frameId, lastFrame.frameId]
       };
     }
 

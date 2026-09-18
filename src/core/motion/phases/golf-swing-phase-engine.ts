@@ -120,14 +120,14 @@ export class GolfSwingPhaseEngine {
     for (let k = 1; k < orderedKeys.length; k++) {
       const prevKey = orderedKeys[k - 1];
       const currKey = orderedKeys[k];
-      if (phaseIndices[currKey] <= phaseIndices[prevKey]) {
+      if (prevKey && currKey && phaseIndices[currKey] <= phaseIndices[prevKey]) {
         phaseIndices[currKey] = Math.min(frames.length - (orderedKeys.length - k), phaseIndices[prevKey] + 1);
       }
     }
     for (let k = orderedKeys.length - 2; k >= 0; k--) {
       const nextKey = orderedKeys[k + 1];
       const currKey = orderedKeys[k];
-      if (phaseIndices[currKey] >= phaseIndices[nextKey]) {
+      if (nextKey && currKey && phaseIndices[currKey] >= phaseIndices[nextKey]) {
         phaseIndices[currKey] = Math.max(0, phaseIndices[nextKey] - 1);
       }
     }
@@ -139,6 +139,7 @@ export class GolfSwingPhaseEngine {
     for (const phaseId of ORDERED_SWING_PHASES) {
       const idx = phaseIndices[phaseId];
       const targetFrame = frames[idx] || frames[0];
+      if (!targetFrame) continue;
       const isAnchor = phaseId === 'P1_ADDRESS' || phaseId === 'P4_TOP' || phaseId === 'P7_IMPACT' || phaseId === 'P10_FINISH';
       const confidence = isFallback ? 0.35 : (isAnchor ? 0.95 : 0.90);
       const evt: SwingPhaseEvent = {
@@ -152,11 +153,11 @@ export class GolfSwingPhaseEngine {
     }
 
     // 3. Extract Kinematics for all 10 phases
-    const addressFrame = sanitizedFrames[phaseIndices.P1_ADDRESS];
+    const addressFrame = sanitizedFrames[phaseIndices.P1_ADDRESS] || sanitizedFrames[0]!;
     const kinematics: Record<SwingPhaseId, any> = {} as any;
 
     for (const phaseId of ORDERED_SWING_PHASES) {
-      const targetFrame = sanitizedFrames[phaseIndices[phaseId]];
+      const targetFrame = sanitizedFrames[phaseIndices[phaseId]] || addressFrame;
       kinematics[phaseId] = extractPhaseKinematics(
         targetFrame,
         phaseId,
@@ -194,7 +195,9 @@ export class GolfSwingPhaseEngine {
     }
     const overallSwingScore = Math.max(25, Math.min(100, Math.round(swingScore)));
 
-    const durationMs = frames[frames.length - 1].timestampMs - frames[0].timestampMs;
+    const firstF = frames[0];
+    const lastF = frames[frames.length - 1];
+    const durationMs = (lastF && firstF) ? lastF.timestampMs - firstF.timestampMs : 0;
 
     return {
       sessionId: `swing_${Date.now()}`,
@@ -215,8 +218,10 @@ export class GolfSwingPhaseEngine {
   }
 
   private estimateFrameRate(frames: PoseFrame[]): number {
-    if (frames.length < 2) return 30;
-    const totalDurationSec = (frames[frames.length - 1].timestampMs - frames[0].timestampMs) / 1000;
+    const first = frames[0];
+    const last = frames[frames.length - 1];
+    if (frames.length < 2 || !first || !last) return 30;
+    const totalDurationSec = (last.timestampMs - first.timestampMs) / 1000;
     if (totalDurationSec <= 0) return 240;
     const rawFps = (frames.length - 1) / totalDurationSec;
 
@@ -268,11 +273,16 @@ export class GolfSwingPhaseEngine {
     frameRate: number = 30
   ) {
     const totalFrames = frames.length;
-    const la = getLandmark(frames[0], LandmarkId.LEFT_ANKLE);
-    const ls0 = getLandmark(frames[0], LandmarkId.LEFT_SHOULDER);
+    const f0 = frames[0];
+    const la = f0 ? getLandmark(f0, LandmarkId.LEFT_ANKLE) : undefined;
+    const ls0 = f0 ? getLandmark(f0, LandmarkId.LEFT_SHOULDER) : undefined;
     const yPointsDown = (la && ls0) ? la.y > ls0.y : true;
 
-    const getElevation = (i: number) => yPointsDown ? -handTrajectory[i].y : handTrajectory[i].y;
+    const getElevation = (i: number) => {
+      const pt = handTrajectory[i];
+      if (!pt) return 0;
+      return yPointsDown ? -pt.y : pt.y;
+    };
 
     // 1. Compute overall elevation stats
     let minElev = Infinity, maxElev = -Infinity;
@@ -291,9 +301,10 @@ export class GolfSwingPhaseEngine {
     for (let i = peakStep; i < totalFrames - peakStep; i++) {
       const el = getElevation(i);
       if (el >= highElevThreshold && el >= getElevation(i - peakStep) && el >= getElevation(i + peakStep)) {
-        if (rawPeaks.length === 0 || i - rawPeaks[rawPeaks.length - 1] >= peakStep * 2) {
+        const lastPeak = rawPeaks[rawPeaks.length - 1];
+        if (lastPeak === undefined || i - lastPeak >= peakStep * 2) {
           rawPeaks.push(i);
-        } else if (el > getElevation(rawPeaks[rawPeaks.length - 1])) {
+        } else if (el > getElevation(lastPeak)) {
           rawPeaks[rawPeaks.length - 1] = i;
         }
       }
@@ -316,10 +327,13 @@ export class GolfSwingPhaseEngine {
       for (let p4Candidate of candidatePeaks) {
         const p4Elev = getElevation(p4Candidate);
         const p4Frame = frames[p4Candidate];
+        if (!p4Frame) continue;
         const lh = getLandmark(p4Frame, LandmarkId.LEFT_HIP);
         const rh = getLandmark(p4Frame, LandmarkId.RIGHT_HIP);
         const pelvisX = (lh && rh) ? (lh.x + rh.x) / 2 : 0.50;
-        const p4HandX = handTrajectory[p4Candidate].x;
+        const p4Hand = handTrajectory[p4Candidate];
+        if (!p4Hand) continue;
+        const p4HandX = p4Hand.x;
 
         if (viewAngle === 'FACE_ON' && strictSpan) {
           // For righty: trail is +X (right of screen). Hands must be on trail side
@@ -350,10 +364,13 @@ export class GolfSwingPhaseEngine {
         // At true Address (P1), hands are centered in front of the pelvis (|handX - pelvisX| <= 0.035).
         if (viewAngle === 'FACE_ON') {
           const p1Frame = frames[lowestP1];
+          if (!p1Frame) continue;
           const p1LH = getLandmark(p1Frame, LandmarkId.LEFT_HIP);
           const p1RH = getLandmark(p1Frame, LandmarkId.RIGHT_HIP);
           const p1PelvisX = (p1LH && p1RH) ? (p1LH.x + p1RH.x) / 2 : 0.50;
-          const p1HandX = handTrajectory[lowestP1].x;
+          const p1Hand = handTrajectory[lowestP1];
+          if (!p1Hand) continue;
+          const p1HandX = p1Hand.x;
 
           const isLowestP1Trail = forRightHanded
             ? (p1HandX > p1PelvisX + 0.035)
@@ -363,10 +380,13 @@ export class GolfSwingPhaseEngine {
             const searchEnd = Math.max(0, lowestP1 - Math.max(30, Math.round(frameRate * 3.5)));
             for (let m = lowestP1 - 1; m >= searchEnd; m--) {
               const frame = frames[m];
+              if (!frame) continue;
               const lh = getLandmark(frame, LandmarkId.LEFT_HIP);
               const rh = getLandmark(frame, LandmarkId.RIGHT_HIP);
               const pelvisX = (lh && rh) ? (lh.x + rh.x) / 2 : 0.50;
-              const handX = handTrajectory[m].x;
+              const handM = handTrajectory[m];
+              if (!handM) continue;
+              const handX = handM.x;
 
               const isCentered = forRightHanded
                 ? (handX <= pelvisX + 0.02)
@@ -382,6 +402,7 @@ export class GolfSwingPhaseEngine {
         }
 
         const addressFrame = frames[lowestP1];
+        if (!addressFrame) continue;
 
         // 2. Refine P4 to the true apex of torso turn and hand elevation plateau
         let refinedP4 = p4Candidate;
@@ -395,7 +416,9 @@ export class GolfSwingPhaseEngine {
           // If hands drop significantly (> 0.05 below p4Elev), downswing descent has started
           if (el < p4Elev - 0.05) break;
 
-          const turn = this.computeRelativeTurn(frames[k], addressFrame, forRightHanded);
+          const kFrame = frames[k];
+          if (!kFrame) continue;
+          const turn = this.computeRelativeTurn(kFrame, addressFrame, forRightHanded);
 
           if (viewAngle === 'FACE_ON') {
             if (turn > p4MaxTurn) {
@@ -419,10 +442,13 @@ export class GolfSwingPhaseEngine {
           if (p10Candidate <= refinedP4 + 4) continue;
           const p10Elev = getElevation(p10Candidate);
           const p10Frame = frames[p10Candidate];
+          if (!p10Frame) continue;
           const p10LH = getLandmark(p10Frame, LandmarkId.LEFT_HIP);
           const p10RH = getLandmark(p10Frame, LandmarkId.RIGHT_HIP);
           const p10PelvisX = (p10LH && p10RH) ? (p10LH.x + p10RH.x) / 2 : 0.50;
-          const p10HandX = handTrajectory[p10Candidate].x;
+          const p10Hand = handTrajectory[p10Candidate];
+          if (!p10Hand) continue;
+          const p10HandX = p10Hand.x;
 
           if (viewAngle === 'FACE_ON' && strictSpan) {
             const isLeadSide = forRightHanded
@@ -430,15 +456,20 @@ export class GolfSwingPhaseEngine {
               : (p10HandX >= p10PelvisX - 0.08);
             if (!isLeadSide) continue;
 
+            const p4Hand = handTrajectory[refinedP4];
+            if (!p4Hand) continue;
             const lateralSpan = forRightHanded
-              ? (handTrajectory[refinedP4].x - p10HandX)
-              : (p10HandX - handTrajectory[refinedP4].x);
+              ? (p4Hand.x - p10HandX)
+              : (p10HandX - p4Hand.x);
             if (lateralSpan < 0.08) continue;
           }
 
           // Compute backswing duration in milliseconds (independent of frame rate variations)
-          const p4TimeMs = frames[refinedP4].timestampMs;
-          const p1TimeMs = frames[lowestP1].timestampMs;
+          const p4Frame = frames[refinedP4];
+          const p1Frame = frames[lowestP1];
+          if (!p4Frame || !p1Frame) continue;
+          const p4TimeMs = p4Frame.timestampMs;
+          const p1TimeMs = p1Frame.timestampMs;
           const backswingDurationMs = Math.max(100, p4TimeMs - p1TimeMs);
 
           // Downswing in golf is always faster than backswing: T_down <= 0.65 * T_back
@@ -452,18 +483,21 @@ export class GolfSwingPhaseEngine {
           let lowestP7 = -1;
 
           for (let j = refinedP4 + 1; j < p10Candidate; j++) {
-            const frameTimeMs = frames[j].timestampMs;
+            const frame = frames[j];
+            const handJ = handTrajectory[j];
+            if (!frame || !handJ) continue;
+
+            const frameTimeMs = frame.timestampMs;
             const dsMs = frameTimeMs - p4TimeMs;
             if (dsMs < minDownswingMs) continue;
             if (dsMs > maxDownswingMs) break;
 
-            const frame = frames[j];
             const lk = getLandmark(frame, LandmarkId.LEFT_KNEE);
             const rk = getLandmark(frame, LandmarkId.RIGHT_KNEE);
             const kneeY = (lk && rk) ? Math.max(lk.y, rk.y) : (lk ? lk.y : rk?.y);
-            if (kneeY !== undefined && handTrajectory[j].y > kneeY + 0.02) continue;
+            if (kneeY !== undefined && handJ.y > kneeY + 0.02) continue;
 
-            const handYDiff = Math.abs(handTrajectory[j].y - addrHand.y);
+            const handYDiff = Math.abs(handJ.y - addrHand.y);
             if (handYDiff > 0.22) continue;
 
             // Biomechanical Impact Rotation Guard:
@@ -490,6 +524,7 @@ export class GolfSwingPhaseEngine {
           const bottomHand = handTrajectory[lowestP7];
           if (viewAngle === 'FACE_ON' && bottomHand) {
             const bottomFrame = frames[lowestP7];
+            if (!bottomFrame) continue;
             const bottomLH = getLandmark(bottomFrame, LandmarkId.LEFT_HIP);
             const bottomRH = getLandmark(bottomFrame, LandmarkId.RIGHT_HIP);
             const pelvisMidX = (bottomLH && bottomRH) ? (bottomLH.x + bottomRH.x) / 2 : 0.50;
@@ -509,7 +544,9 @@ export class GolfSwingPhaseEngine {
               for (let j = lowestP7; j <= maxSearchIdx; j++) {
                 const hand = handTrajectory[j];
                 const frame = frames[j];
-                const dsMs = frames[j].timestampMs - p4TimeMs;
+                if (!hand || !frame) continue;
+
+                const dsMs = frame.timestampMs - p4TimeMs;
                 if (dsMs > maxDownswingMs) break;
 
                 const lk = getLandmark(frame, LandmarkId.LEFT_KNEE);
@@ -550,7 +587,9 @@ export class GolfSwingPhaseEngine {
           const finishRise = p10Elev - p7Elev;
           if (downswingDrop < 0.05 || finishRise < 0.05) continue;
 
-          const downswingDurationMs = Math.max(1, frames[lowestP7].timestampMs - p4TimeMs);
+          const lowestP7Frame = frames[lowestP7];
+          if (!lowestP7Frame) continue;
+          const downswingDurationMs = Math.max(1, lowestP7Frame.timestampMs - p4TimeMs);
           const tempoRatio = backswingDurationMs / downswingDurationMs;
           if (tempoRatio < 1.4) continue; // Biomechanically impossible swing tempo
 
@@ -618,6 +657,7 @@ export class GolfSwingPhaseEngine {
     // Scan bidirectional window around P10 candidate peak
     for (let k = result.p10Idx; k <= maxK; k++) {
       const frame = frames[k];
+      if (!frame) continue;
       const lw = getLandmark(frame, LandmarkId.LEFT_WRIST);
       const rw = getLandmark(frame, LandmarkId.RIGHT_WRIST);
       const le = getLandmark(frame, LandmarkId.LEFT_ELBOW);
@@ -634,6 +674,7 @@ export class GolfSwingPhaseEngine {
     if (bestP10Vis < 0.35) {
       for (let k = result.p10Idx - 1; k >= minK; k--) {
         const frame = frames[k];
+        if (!frame) continue;
         const lw = getLandmark(frame, LandmarkId.LEFT_WRIST);
         const rw = getLandmark(frame, LandmarkId.RIGHT_WRIST);
         const le = getLandmark(frame, LandmarkId.LEFT_ELBOW);
@@ -673,12 +714,16 @@ export class GolfSwingPhaseEngine {
     if (minIdx >= maxIdx) return Math.min(frames.length - 1, p1Idx + 1);
 
     const addrFrame = frames[p1Idx] || frames[0];
+    if (!addrFrame) return minIdx;
 
     let bestIdx = minIdx;
     let minDiff = Infinity;
 
     for (let i = minIdx; i <= maxIdx; i++) {
       const frame = frames[i];
+      const handI = handTrajectory[i];
+      if (!frame || !handI) continue;
+
       const lh = getLandmark(frame, LandmarkId.LEFT_HIP);
       const rh = getLandmark(frame, LandmarkId.RIGHT_HIP);
 
@@ -689,15 +734,15 @@ export class GolfSwingPhaseEngine {
       const addrHandX = handTrajectory[p1Idx]?.x ?? 0.50;
       if (this.viewAngle === 'FACE_ON' && (maxIdx - minIdx) > 5) {
         const lateralMoved = this.isRightHanded
-          ? (handTrajectory[i].x - addrHandX)
-          : (addrHandX - handTrajectory[i].x);
+          ? (handI.x - addrHandX)
+          : (addrHandX - handI.x);
         const pelvisWidth = (rh && lh) ? Math.abs(rh.x - lh.x) : 0.15;
         const minMove = Math.max(0.015, pelvisWidth * 0.10);
         if (lateralMoved < minMove) continue;
       }
 
       // Distance from hands to hip elevation
-      const handDistToHip = Math.abs(handTrajectory[i].y - hipY);
+      const handDistToHip = Math.abs(handI.y - hipY);
       // Turn proximity to classic takeaway (28° per PGA Tour data)
       const turnPenalty = Math.abs(turn - 28) / 45;
 
@@ -729,6 +774,7 @@ export class GolfSwingPhaseEngine {
 
     for (let i = minIdx; i <= maxIdx; i++) {
       const frame = frames[i];
+      if (!frame) continue;
       const leadShoulder = getLandmark(frame, this.isRightHanded ? LandmarkId.LEFT_SHOULDER : LandmarkId.RIGHT_SHOULDER);
       const leadWrist = getLandmark(frame, this.isRightHanded ? LandmarkId.LEFT_WRIST : LandmarkId.RIGHT_WRIST);
 
@@ -774,13 +820,16 @@ export class GolfSwingPhaseEngine {
     if (minIdx >= maxIdx) return Math.min(frames.length - 1, p4Idx + 1);
 
     const addrFrame = frames[p1Idx] || frames[0];
-    const p4Turn = this.computeRelativeTurn(frames[p4Idx], addrFrame, this.isRightHanded);
+    const p4Frame = frames[p4Idx];
+    if (!addrFrame || !p4Frame) return minIdx;
+    const p4Turn = this.computeRelativeTurn(p4Frame, addrFrame, this.isRightHanded);
 
     let bestIdx = minIdx;
     let minScore = Infinity;
 
     for (let i = minIdx; i <= maxIdx; i++) {
       const frame = frames[i];
+      if (!frame) continue;
       const leadShoulder = getLandmark(frame, this.isRightHanded ? LandmarkId.LEFT_SHOULDER : LandmarkId.RIGHT_SHOULDER);
       const leadWrist = getLandmark(frame, this.isRightHanded ? LandmarkId.LEFT_WRIST : LandmarkId.RIGHT_WRIST);
 
@@ -826,12 +875,16 @@ export class GolfSwingPhaseEngine {
     if (minIdx >= maxIdx) return Math.min(p7Idx - 1, Math.max(minIdx, p5Idx + 1));
 
     const addrFrame = frames[p1Idx] || frames[0];
+    if (!addrFrame) return minIdx;
 
     let bestIdx = minIdx;
     let minDiff = Infinity;
 
     for (let i = minIdx; i <= maxIdx; i++) {
       const frame = frames[i];
+      const handI = handTrajectory[i];
+      if (!frame || !handI) continue;
+
       const trailHip = getLandmark(frame, this.isRightHanded ? LandmarkId.RIGHT_HIP : LandmarkId.LEFT_HIP);
       const trailKnee = getLandmark(frame, this.isRightHanded ? LandmarkId.RIGHT_KNEE : LandmarkId.LEFT_KNEE);
 
@@ -840,7 +893,7 @@ export class GolfSwingPhaseEngine {
         : 0.50;
 
       const trailHipX = trailHip ? trailHip.x : 0.50;
-      const diffX = Math.abs(handTrajectory[i].x - trailHipX);
+      const diffX = Math.abs(handI.x - trailHipX);
       const turn = this.computeRelativeTurn(frame, addrFrame, this.isRightHanded);
 
       // Delivery (P6) is in the downswing near trail thigh.
@@ -852,7 +905,7 @@ export class GolfSwingPhaseEngine {
       // Turn proximity to classic delivery position (~20° per PGA Tour data)
       const turnPenalty = this.viewAngle === 'FACE_ON' ? Math.abs(turn - 20) / 35 : 0;
 
-      const diff = Math.abs(handTrajectory[i].y - thighTargetY) + diffX * 0.35 + turnPenalty * 0.20;
+      const diff = Math.abs(handI.y - thighTargetY) + diffX * 0.35 + turnPenalty * 0.20;
       if (diff < minDiff) {
         minDiff = diff;
         bestIdx = i;
@@ -878,12 +931,16 @@ export class GolfSwingPhaseEngine {
     if (minIdx >= maxIdx) return Math.min(p10Idx - 2, Math.max(minIdx, p7Idx + 1));
 
     const addrFrame = frames[p1Idx] || frames[0];
+    if (!addrFrame) return minIdx;
 
     let bestIdx = minIdx;
     let minDiff = Infinity;
 
     for (let i = minIdx; i <= maxIdx; i++) {
       const frame = frames[i];
+      const handI = handTrajectory[i];
+      if (!frame || !handI) continue;
+
       const leadHip = getLandmark(frame, this.isRightHanded ? LandmarkId.LEFT_HIP : LandmarkId.RIGHT_HIP);
       const leadKnee = getLandmark(frame, this.isRightHanded ? LandmarkId.LEFT_KNEE : LandmarkId.RIGHT_KNEE);
 
@@ -891,7 +948,7 @@ export class GolfSwingPhaseEngine {
         ? leadHip.y + (leadKnee.y - leadHip.y) * 0.15
         : 0.52;
 
-      const diffY = Math.abs(handTrajectory[i].y - targetY);
+      const diffY = Math.abs(handI.y - targetY);
       const turn = this.computeRelativeTurn(frame, addrFrame, this.isRightHanded);
       const turnPenalty = this.viewAngle === 'FACE_ON' ? Math.abs(turn - (-55)) / 60 : 0;
 
@@ -923,6 +980,7 @@ export class GolfSwingPhaseEngine {
 
     for (let i = minIdx; i <= maxIdx; i++) {
       const frame = frames[i];
+      if (!frame) continue;
       const trailShoulder = getLandmark(frame, this.isRightHanded ? LandmarkId.RIGHT_SHOULDER : LandmarkId.LEFT_SHOULDER);
       const trailWrist = getLandmark(frame, this.isRightHanded ? LandmarkId.RIGHT_WRIST : LandmarkId.LEFT_WRIST);
 

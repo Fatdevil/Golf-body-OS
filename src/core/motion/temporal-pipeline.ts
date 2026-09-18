@@ -295,9 +295,11 @@ export class TemporalPipeline {
 
     // Rules handling
     traceBuilder.setFrameCounts(frames.length, validFramesCount, 0, rejectedFramesCount);
+    const firstFrameTime = frames[0]?.timestampMs ?? Date.now();
+    const lastFrameTime = frames[frames.length - 1]?.timestampMs ?? firstFrameTime;
     traceBuilder.setTimestamps(
-      new Date(frames[0].timestampMs).toISOString(),
-      new Date(frames[frames.length - 1].timestampMs).toISOString()
+      new Date(firstFrameTime).toISOString(),
+      new Date(lastFrameTime).toISOString()
     );
     traceBuilder.setVersions('V1', 'V1', 'V1', 'V1');
     traceBuilder.setConfidence(confidence.overall);

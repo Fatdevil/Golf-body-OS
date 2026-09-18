@@ -70,7 +70,8 @@ function generateFocusSummary(
     RECOVERY: { sv: 'Fokus: Återhämtning', en: 'Focus: Recovery' },
   };
 
-  const label = focusLabels[context.focusMode] ?? focusLabels.AUTO;
+  const defaultLabel = { sv: 'Auto-plan', en: 'Auto-plan' };
+  const label = focusLabels[context.focusMode] ?? focusLabels.AUTO ?? defaultLabel;
 
   return {
     sv: `${label.sv} — ${partsSv.join(' + ')}`,
@@ -100,7 +101,7 @@ function generateRationale(
     TIRED: { sv: 'Du känner dig trött', en: 'You feel tired' },
     SORE: { sv: 'Du känner dig öm', en: 'You feel sore' },
   };
-  const feel = feelLabels[state.bodyFeel];
+  const feel = feelLabels[state.bodyFeel] ?? { sv: 'Du känner dig redo', en: 'You feel ready' };
   partsSv.push(feel.sv);
   parts.push(feel.en);
 
@@ -117,8 +118,8 @@ function generateRationale(
   }
 
   // Top bottleneck
-  if (profile.primaryBottlenecks.length > 0) {
-    const top = profile.primaryBottlenecks[0];
+  const top = profile.primaryBottlenecks[0];
+  if (top) {
     partsSv.push(`din största begränsning är ${top.label.sv.toLowerCase()}`);
     parts.push(`your main limitation is ${top.label.en.toLowerCase()}`);
   }
@@ -129,8 +130,9 @@ function generateRationale(
     parts.push('the program is adapted due to reported discomfort');
   }
 
-  const svText = partsSv.length > 0
-    ? `${partsSv[0]}, ${partsSv.slice(1).join(' och ')}. Programmet innehåller ${exerciseCount} övningar.`
+  const firstSv = partsSv[0];
+  const svText = (partsSv.length > 0 && firstSv !== undefined)
+    ? `${firstSv}, ${partsSv.slice(1).join(' och ')}. Programmet innehåller ${exerciseCount} övningar.`
     : `Programmet innehåller ${exerciseCount} övningar.`;
 
   const enText = parts.length > 0

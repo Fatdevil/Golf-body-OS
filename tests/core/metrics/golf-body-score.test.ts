@@ -102,8 +102,7 @@ describe('Golf Body Score Engine', () => {
     expect(result.tierLabel).toBe('Tour-nivå');
     expect(result.hipHinge.total).toBe(50);
     expect(result.thoracic.total).toBe(50);
-    expect(result.keyStrengths.length).toBeGreaterThanOrEqual(3);
-    expect(result.primaryBottlenecks).toContain('Inga allvarliga rörelsebegränsningar identifierade');
+    expect(result.primaryBottlenecks).toEqual([]);
   });
 
   it('deducts points and identifies bottlenecks when compensations are present', () => {

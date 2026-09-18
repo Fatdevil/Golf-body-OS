@@ -130,8 +130,8 @@ export function summarizeThoracicRotation(samples: RotationSample[]): ThoracicRo
     };
   }
 
-  let peakLeftSample = samples[0];
-  let peakRightSample = samples[0];
+  let peakLeftSample = samples[0]!;
+  let peakRightSample = samples[0]!;
   let maxTilt = 0;
 
   for (const s of samples) {

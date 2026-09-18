@@ -36,10 +36,10 @@ export interface DeviceValidationReport {
   };
 
   inference: {
-    meanLatencyMs: number | null;
-    p50LatencyMs: number | null;
-    p95LatencyMs: number | null;
-    maxLatencyMs: number | null;
+    meanLatencyMs: number;
+    p50LatencyMs: number;
+    p95LatencyMs: number;
+    maxLatencyMs: number;
   };
 
   landmarks: {
@@ -83,9 +83,9 @@ export function computeLatencyStats(latencies: number[]): DeviceValidationReport
   const sum = sorted.reduce((acc, val) => acc + val, 0);
   
   const mean = sum / sorted.length;
-  const p50 = sorted[Math.floor(sorted.length * 0.50)];
-  const p95 = sorted[Math.floor(sorted.length * 0.95)];
-  const max = sorted[sorted.length - 1];
+  const p50 = sorted[Math.floor(sorted.length * 0.50)] ?? 0;
+  const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? 0;
+  const max = sorted[sorted.length - 1] ?? 0;
 
   return {
     meanLatencyMs: mean,

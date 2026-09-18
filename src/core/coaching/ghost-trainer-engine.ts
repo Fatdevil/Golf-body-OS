@@ -207,9 +207,15 @@ export function getProCheckpointPoseFrame(
   isMirroredView: boolean = true
 ): PoseFrame {
   const def = GHOST_CHECKPOINTS.find(c => c.id === checkpointId) ?? GHOST_CHECKPOINTS[0];
+  if (!def) {
+    throw new Error('No ghost checkpoints defined');
+  }
   const seq = PRO_SEQUENCE_CACHE[viewAngle] || PRO_SEQUENCE_CACHE.DOWN_THE_LINE;
   const frameIdx = Math.min(seq.length - 1, Math.max(0, def.frameIndex240Fps));
   const baseFrame = seq[frameIdx];
+  if (!baseFrame) {
+    throw new Error(`Missing frame at index ${frameIdx}`);
+  }
 
   // Base template is standard right-handed unmirrored video.
   // Mirror if left-handed XOR mirrored selfie camera.

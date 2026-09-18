@@ -210,6 +210,10 @@ export class AudioCoachService {
         return;
       }
       const key = keys[index];
+      if (!key) {
+        onComplete?.();
+        return;
+      }
       const spoken = this.speak(key, priority, undefined, () => {
         if (!this.isSequenceCancelled) {
           playNext(index + 1);

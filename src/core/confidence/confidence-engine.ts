@@ -60,10 +60,7 @@ export class ConfidenceEngine {
       cameraStability: this.clamp(input.cameraStability) * w.cameraStability,
     };
 
-    let overall = 0;
-    for (const key in components) {
-      overall += components[key];
-    }
+    const overall = Object.values(components).reduce((sum, val) => sum + val, 0);
 
     const flags: string[] = [];
 
