@@ -1,7 +1,7 @@
 /**
  * Body Profile — The structured truth about a person's physical capabilities.
  *
- * Three domains: MOBILITY, MOTOR_CONTROL, LOAD_TOLERANCE.
+ * Four domains: MOBILITY, MOTOR_CONTROL, CAPACITY, POWER.
  * Each domain contains per-area scores with timestamps and confidence.
  *
  * GolfBodyScore is a computed view on top of this — never the primary data.
@@ -66,10 +66,16 @@ export interface AreaScore {
 /** How the assessment was obtained */
 export type AssessmentSource = 'SCREENING' | 'TARGETED_RETEST' | 'INFERRED';
 
+/** Status of the assessment to prevent acting on missing data */
+export type AssessmentStatus = 'NOT_TESTED' | 'MEASURED' | 'DERIVED';
+
 /** A single domain assessment within the body profile */
 export interface DomainAssessment {
   /** Which domain this assesses */
   domain: BodyDomain;
+
+  /** Status of this domain (NOT_TESTED domains are skipped by priority engine) */
+  status: AssessmentStatus;
 
   /** Per-area scores within this domain */
   areas: AreaScore[];
@@ -112,8 +118,11 @@ export interface BodyProfile {
   /** Motor Control: can the person control the movement? */
   motorControl: DomainAssessment;
 
-  /** Load Tolerance: can the body work under load? */
-  loadTolerance: DomainAssessment;
+  /** Capacity (formerly Load Tolerance): can the body work under load for reps/time? */
+  capacity: DomainAssessment;
+
+  /** Power (Optional): can the body produce force explosively? */
+  power: DomainAssessment;
 
   // ── Computed views (derived, not primary data) ──────────────────────
   /** Golf Body Score — a compressed 0-100 view of the profile */

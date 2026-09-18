@@ -21,6 +21,7 @@ const mockProfile: BodyProfile = {
   updatedAt: new Date('2025-01-15'),
   mobility: {
     domain: 'MOBILITY',
+    status: 'MEASURED',
     areas: [
       {
         areaId: 'hip-rotation-limited',
@@ -50,6 +51,7 @@ const mockProfile: BodyProfile = {
   },
   motorControl: {
     domain: 'MOTOR_CONTROL',
+    status: 'DERIVED',
     areas: [
       {
         areaId: 'trunk-control-poor',
@@ -67,24 +69,23 @@ const mockProfile: BodyProfile = {
     lastTestedAt: new Date('2025-01-15'),
     source: 'SCREENING',
   },
-  loadTolerance: {
-    domain: 'LOAD_TOLERANCE',
-    areas: [
-      {
-        areaId: 'glute-activation-poor',
-        label: { sv: 'Sätesaktivering', en: 'Glute Activation' },
-        score: 10,
-        maxScore: 25,
-        quality: 'FAIR',
-        rawMeasurements: {},
-        compensations: [],
-        lastTestedAt: new Date('2025-01-15'),
-      },
-    ],
-    compositeScore: 40,
-    confidence: 'MODERATE',
-    lastTestedAt: new Date('2025-01-15'),
-    source: 'SCREENING',
+  capacity: {
+    domain: 'CAPACITY',
+    status: 'NOT_TESTED',
+    areas: [],
+    compositeScore: 60,
+    confidence: 'LOW',
+    lastTestedAt: null,
+    source: 'INFERRED'
+  },
+  power: {
+    domain: 'POWER',
+    status: 'NOT_TESTED',
+    areas: [],
+    compositeScore: 50,
+    confidence: 'LOW',
+    lastTestedAt: null,
+    source: 'INFERRED'
   },
   golfBodyScore: 47,
   golfBodyTier: 'MODERATE',

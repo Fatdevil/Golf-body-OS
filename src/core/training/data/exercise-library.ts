@@ -609,6 +609,68 @@ const REC_03_FIGURE_4_STRETCH: Exercise = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
+// POWER (2 exercises)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const POW_01_COUNTERMOVEMENT_JUMP: Exercise = {
+  id: 'pow-01-countermovement-jump',
+  name: { sv: 'Vertikalhopp (Countermovement)', en: 'Countermovement Jump' },
+  category: 'POWER',
+  bodyRegions: ['GLUTE', 'HIP', 'KNEE', 'ANKLE'],
+  targetFindings: ['power-output-low'],
+  difficulty: 'INTERMEDIATE',
+  equipment: ['NONE'],
+  defaultDose: { sets: 3, reps: 5, holdSeconds: null, tempoDescription: { sv: 'Maximal explosivitet', en: 'Maximal explosiveness' }, restSeconds: 60, rpe: 8 },
+  estimatedDurationSec: 240,
+  contraindicationTags: ['LOWER_BACK', 'KNEE_LEFT', 'KNEE_RIGHT', 'ANKLE_LEFT', 'ANKLE_RIGHT', 'HIP_LEFT', 'HIP_RIGHT'],
+  regressions: [],
+  progressions: [],
+  golfRelevance: [
+    { swingFault: 'LOSS_OF_POSTURE', explanation: { sv: 'Vertikal kraft krävs för att använda markreaktionskrafter i svingen', en: 'Vertical force is required to use ground reaction forces in the swing' } },
+  ],
+  compatibleFindings: [],
+  incompatibleFindings: [],
+  media: { thumbnailUrl: null, videoUrl: null, animationUrl: null },
+  instructions: {
+    sv: 'Stå höftbrett. Gå snabbt ner i en knäböj och hoppa omedelbart så högt du kan. Landa mjukt. Återställ mellan varje repetition.',
+    en: 'Stand hip-width apart. Drop quickly into a squat and immediately jump as high as you can. Land softly. Reset between each rep.',
+  },
+  cuePoints: [
+    { atSecond: 0, cue: { sv: 'Kort, snabb dipp ner', en: 'Short, quick dip down' } },
+    { atSecond: 2, cue: { sv: 'Tryck ifrån genom hela foten', en: 'Push through the whole foot' } },
+  ],
+};
+
+const POW_02_LATERAL_BOUND: Exercise = {
+  id: 'pow-02-lateral-bound',
+  name: { sv: 'Sidledshopp (Lateral Bound)', en: 'Lateral Bound' },
+  category: 'POWER',
+  bodyRegions: ['GLUTE', 'HIP', 'KNEE', 'ANKLE'],
+  targetFindings: ['lateral-power-low', 'power-output-low'],
+  difficulty: 'ADVANCED',
+  equipment: ['NONE'],
+  defaultDose: { sets: 3, reps: 4, holdSeconds: null, tempoDescription: { sv: 'Maximalt frånskjut', en: 'Maximal push-off' }, restSeconds: 60, rpe: 8 },
+  estimatedDurationSec: 240,
+  contraindicationTags: ['LOWER_BACK', 'KNEE_LEFT', 'KNEE_RIGHT', 'ANKLE_LEFT', 'ANKLE_RIGHT', 'HIP_LEFT', 'HIP_RIGHT'],
+  regressions: [],
+  progressions: [],
+  golfRelevance: [
+    { swingFault: 'SWAY', explanation: { sv: 'Förbättrar förmågan att generera och bromsa kraft i sidled', en: 'Improves ability to generate and brake lateral force' } },
+  ],
+  compatibleFindings: [],
+  incompatibleFindings: [],
+  media: { thumbnailUrl: null, videoUrl: null, animationUrl: null },
+  instructions: {
+    sv: 'Stå på ett ben. Hoppa explosivt åt sidan och landa på det andra benet. Fånga balansen och håll positionen i en sekund innan nästa hopp.',
+    en: 'Stand on one leg. Jump explosively to the side and land on the other leg. Catch your balance and hold the position for one second before the next jump.',
+  },
+  cuePoints: [
+    { atSecond: 0, cue: { sv: 'Sjunk ner något innan frånskjut', en: 'Drop down slightly before push-off' } },
+    { atSecond: 2, cue: { sv: 'Landa mjukt med böjt knä', en: 'Land softly with a bent knee' } },
+  ],
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
 // LIBRARY EXPORT
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -649,6 +711,10 @@ export const EXERCISE_LIBRARY: Exercise[] = [
   REC_01_FOAM_ROLL_THORACIC,
   REC_02_CHILDS_POSE_ROTATION,
   REC_03_FIGURE_4_STRETCH,
+
+  // Power
+  POW_01_COUNTERMOVEMENT_JUMP,
+  POW_02_LATERAL_BOUND,
 ];
 
 /** Convenience lookup by ID */
@@ -665,3 +731,7 @@ export function getExercisesByCategory(category: Exercise['category']): Exercise
 export function getExercisesForFinding(findingId: string): Exercise[] {
   return EXERCISE_LIBRARY.filter(ex => ex.compatibleFindings.includes(findingId));
 }
+
+
+
+

@@ -309,6 +309,7 @@ export function screeningToProfile(
   // Mobility domain
   const mobility: DomainAssessment = {
     domain: 'MOBILITY',
+    status: 'MEASURED',
     areas: mobilityAreas,
     compositeScore: mobilityComposite,
     confidence: 'HIGH',
@@ -353,6 +354,7 @@ export function screeningToProfile(
 
   const motorControl: DomainAssessment = {
     domain: 'MOTOR_CONTROL',
+    status: controlAreas.length > 0 ? 'DERIVED' : 'NOT_TESTED',
     areas: controlAreas,
     compositeScore: controlComposite,
     confidence: controlAreas.length > 0 ? 'MODERATE' : 'LOW',
@@ -360,22 +362,25 @@ export function screeningToProfile(
     source: controlAreas.length > 0 ? 'INFERRED' : 'INFERRED',
   };
 
-  // Load Tolerance domain (not directly tested — inferred at LOW confidence)
-  const loadTolerance: DomainAssessment = {
-    domain: 'LOAD_TOLERANCE',
-    areas: [{
-      areaId: 'glute-activation-poor',
-      label: { sv: 'Sätesaktivering', en: 'Glute Activation' },
-      score: Math.round((score.hipHinge.total / 50) * 25), // Rough proxy
-      maxScore: 25,
-      quality: scoreToQuality(score.hipHinge.total, 50),
-      rawMeasurements: {},
-      compensations: [],
-      lastTestedAt: now,
-    }],
-    compositeScore: Math.round((score.hipHinge.total / 50) * 100),
+  // Capacity domain (not tested in base screening)
+  const capacity: DomainAssessment = {
+    domain: 'CAPACITY',
+    status: 'NOT_TESTED',
+    areas: [],
+    compositeScore: 0,
     confidence: 'LOW',
-    lastTestedAt: now,
+    lastTestedAt: null,
+    source: 'INFERRED',
+  };
+
+  // Power domain (not tested in base screening)
+  const power: DomainAssessment = {
+    domain: 'POWER',
+    status: 'NOT_TESTED',
+    areas: [],
+    compositeScore: 0,
+    confidence: 'LOW',
+    lastTestedAt: null,
     source: 'INFERRED',
   };
 
@@ -389,7 +394,8 @@ export function screeningToProfile(
     updatedAt: now,
     mobility,
     motorControl,
-    loadTolerance,
+    capacity,
+    power,
     golfBodyScore: score.totalScore,
     golfBodyTier: tierToGolfBodyTier(score.tier),
     primaryBottlenecks: bottlenecks,

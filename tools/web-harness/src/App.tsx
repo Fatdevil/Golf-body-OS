@@ -356,12 +356,13 @@ export default function App() {
           // Create a visually appealing mock profile for the blurred background
           const mockProfile: BodyProfile = {
             id: 'mock', userId: 'mock', createdAt: new Date(), updatedAt: new Date(),
-            mobility: { domain: 'MOBILITY', compositeScore: 65, confidence: 'HIGH', lastTestedAt: new Date(), source: 'SCREENING', areas: [
-              { areaId: 'thoracic-rotation-limited', label: { sv: 'Bröstrygg', en: 'Thoracic' }, score: 12, maxScore: 25, quality: 'POOR', rawMeasurements: {}, compensations: [], lastTestedAt: new Date() },
+            mobility: { domain: 'MOBILITY', status: 'MEASURED', compositeScore: 60, confidence: 'HIGH', lastTestedAt: new Date(), source: 'SCREENING', areas: [
+              { areaId: 'thoracic-rotation-limited', label: { sv: 'Bröstrygg', en: 'Thoracic' }, score: 10, maxScore: 25, quality: 'POOR', rawMeasurements: {}, compensations: [], lastTestedAt: new Date() },
               { areaId: 'hip-hinge-limited', label: { sv: 'Höfter', en: 'Hips' }, score: 20, maxScore: 25, quality: 'GOOD', rawMeasurements: {}, compensations: [], lastTestedAt: new Date() }
             ]},
-            motorControl: { domain: 'MOTOR_CONTROL', compositeScore: 50, confidence: 'LOW', lastTestedAt: new Date(), source: 'SCREENING', areas: [] },
-            loadTolerance: { domain: 'LOAD_TOLERANCE', compositeScore: 50, confidence: 'LOW', lastTestedAt: new Date(), source: 'SCREENING', areas: [] },
+            motorControl: { domain: 'MOTOR_CONTROL', status: 'DERIVED', compositeScore: 50, confidence: 'LOW', lastTestedAt: new Date(), source: 'SCREENING', areas: [] },
+            capacity: { domain: 'CAPACITY', status: 'NOT_TESTED', compositeScore: 0, confidence: 'LOW', lastTestedAt: new Date(), source: 'SCREENING', areas: [] },
+            power: { domain: 'POWER', status: 'NOT_TESTED', compositeScore: 0, confidence: 'LOW', lastTestedAt: new Date(), source: 'SCREENING', areas: [] },
             golfBodyScore: 65, golfBodyTier: 'MODERATE',
             primaryBottlenecks: [{ id: 'mock1', domain: 'MOBILITY', areaId: 'thoracic-rotation-limited', type: 'LIMITATION', severity: 'SIGNIFICANT', label: { sv: 'Begränsad bröstrygg', en: 'Limited thoracic' }, description: { sv: '', en: '' }, compatibleExerciseTags: [], confidence: 'HIGH' }],
             keyStrengths: [{ id: 'mock2', domain: 'MOBILITY', areaId: 'hip-hinge-limited', type: 'STRENGTH', severity: 'MILD', label: { sv: 'Stark höftfällning', en: 'Strong hip hinge' }, description: { sv: '', en: '' }, compatibleExerciseTags: [], confidence: 'HIGH' }]

@@ -42,39 +42,40 @@ export interface TrainingPriority {
 interface DomainMultipliers {
   MOBILITY: number;
   MOTOR_CONTROL: number;
-  LOAD_TOLERANCE: number;
+  CAPACITY: number;
+  POWER: number;
 }
 
 function getStateModifiers(state: DailyState): DomainMultipliers {
   switch (state.bodyFeel) {
     case 'FRESH':
-      return { MOBILITY: 1.0, MOTOR_CONTROL: 1.0, LOAD_TOLERANCE: 1.1 };
+      return { MOBILITY: 1.0, MOTOR_CONTROL: 1.0, CAPACITY: 1.1, POWER: 1.2 };
     case 'NORMAL':
-      return { MOBILITY: 1.0, MOTOR_CONTROL: 1.0, LOAD_TOLERANCE: 1.0 };
+      return { MOBILITY: 1.0, MOTOR_CONTROL: 1.0, CAPACITY: 1.0, POWER: 1.0 };
     case 'STIFF':
-      return { MOBILITY: 1.3, MOTOR_CONTROL: 0.9, LOAD_TOLERANCE: 0.7 };
+      return { MOBILITY: 1.3, MOTOR_CONTROL: 0.9, CAPACITY: 0.7, POWER: 0.5 };
     case 'TIRED':
-      return { MOBILITY: 1.1, MOTOR_CONTROL: 0.8, LOAD_TOLERANCE: 0.5 };
+      return { MOBILITY: 1.1, MOTOR_CONTROL: 0.8, CAPACITY: 0.5, POWER: 0.3 };
     case 'SORE':
-      return { MOBILITY: 1.2, MOTOR_CONTROL: 0.7, LOAD_TOLERANCE: 0.4 };
+      return { MOBILITY: 1.2, MOTOR_CONTROL: 0.7, CAPACITY: 0.4, POWER: 0.1 };
   }
 }
 
 function getContextModifiers(context: GolfContext): DomainMultipliers {
   // Competition today or tomorrow → shift toward recovery/mobility
   if (context.golfToday === 'COMPETITION' || context.golfTomorrow === 'COMPETITION') {
-    return { MOBILITY: 1.2, MOTOR_CONTROL: 0.9, LOAD_TOLERANCE: 0.3 };
+    return { MOBILITY: 1.2, MOTOR_CONTROL: 0.9, CAPACITY: 0.3, POWER: 0.2 };
   }
   // Playing 18 today → warm-up focus
   if (context.golfToday === 'EIGHTEEN_HOLES' || context.golfToday === 'NINE_HOLES') {
-    return { MOBILITY: 1.3, MOTOR_CONTROL: 0.8, LOAD_TOLERANCE: 0.4 };
+    return { MOBILITY: 1.3, MOTOR_CONTROL: 0.8, CAPACITY: 0.4, POWER: 0.2 };
   }
   // Playing tomorrow → moderate reduction in load
   if (context.golfTomorrow === 'EIGHTEEN_HOLES' || context.golfTomorrow === 'NINE_HOLES') {
-    return { MOBILITY: 1.1, MOTOR_CONTROL: 1.0, LOAD_TOLERANCE: 0.7 };
+    return { MOBILITY: 1.1, MOTOR_CONTROL: 1.0, CAPACITY: 0.7, POWER: 0.5 };
   }
   // No golf → train normally
-  return { MOBILITY: 1.0, MOTOR_CONTROL: 1.0, LOAD_TOLERANCE: 1.0 };
+  return { MOBILITY: 1.0, MOTOR_CONTROL: 1.0, CAPACITY: 1.0, POWER: 1.0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +104,11 @@ function extractAreaPriorities(
   stateMultiplier: number,
   contextMultiplier: number,
 ): TrainingPriority[] {
+  // Eligibility Gate: Do not infer deficiencies or priorities from unmeasured domains
+  if (domain.status === 'NOT_TESTED') {
+    return [];
+  }
+
   return domain.areas.map(area => {
     const basePriority = scoreToPriority(area.score, area.maxScore);
 
@@ -179,11 +185,11 @@ function applyPainAdjustments(
 ): TrainingPriority[] {
   if (state.painAreas.length === 0) return priorities;
 
-  // If SIGNIFICANT pain exists, drastically reduce all load tolerance
+  // If SIGNIFICANT pain exists, drastically reduce all capacity and power
   const hasSignificantPain = state.painAreas.some(p => p.intensity === 'SIGNIFICANT');
 
   return priorities.map(p => {
-    if (hasSignificantPain && p.domain === 'LOAD_TOLERANCE') {
+    if (hasSignificantPain && (p.domain === 'CAPACITY' || p.domain === 'POWER')) {
       return { ...p, priority: Math.min(p.priority, 0.1) };
     }
     if (hasSignificantPain && p.domain === 'MOTOR_CONTROL') {
@@ -222,9 +228,14 @@ export function calculatePriorities(
       contextMods.MOTOR_CONTROL,
     ),
     ...extractAreaPriorities(
-      profile.loadTolerance,
-      stateMods.LOAD_TOLERANCE,
-      contextMods.LOAD_TOLERANCE,
+      profile.capacity,
+      stateMods.CAPACITY,
+      contextMods.CAPACITY,
+    ),
+    ...extractAreaPriorities(
+      profile.power,
+      stateMods.POWER,
+      contextMods.POWER,
     ),
   ];
 

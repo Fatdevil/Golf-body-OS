@@ -45,11 +45,12 @@ function makeArea(id: string, score: number, max: number, label: string, compens
   };
 }
 
-function makeDomain(domain: 'MOBILITY' | 'MOTOR_CONTROL' | 'LOAD_TOLERANCE', areas: AreaScore[]): DomainAssessment {
+function makeDomain(domain: 'MOBILITY' | 'MOTOR_CONTROL' | 'CAPACITY' | 'POWER', areas: AreaScore[]): DomainAssessment {
   const total = areas.reduce((s, a) => s + a.score, 0);
   const max = areas.reduce((s, a) => s + a.maxScore, 0);
   return {
     domain,
+    status: areas.length > 0 ? 'MEASURED' : 'NOT_TESTED',
     areas,
     compositeScore: max > 0 ? Math.round((total / max) * 100) : 50,
     confidence: 'HIGH',

@@ -272,32 +272,62 @@ export default function BodyScreen({
           <span>{isSv ? 'Skapa Dagens Program' : 'Create Daily Program'}</span>
         </button>
 
-        {/* Lager 2: Raw Results */}
+        {/* Lager 2: Domains */}
         <div className="pt-4">
-          <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 px-2">{isSv ? 'Testresultat' : 'Test Results'}</h3>
+          <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 px-2">{isSv ? 'Dina Domäner' : 'Your Domains'}</h3>
           <div className="space-y-3">
-            {profile.mobility.areas.map(area => (
-              <div key={area.areaId} className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex items-center justify-between">
-                <div>
-                  <h4 className="font-semibold text-gray-200">{isSv ? area.label.sv : area.label.en}</h4>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-md ${
-                      area.quality === 'POOR' ? 'bg-orange-500/20 text-orange-400' :
-                      area.quality === 'FAIR' ? 'bg-amber-500/20 text-amber-400' :
-                      'bg-emerald-500/20 text-emerald-400'
-                    }`}>
-                      {area.quality}
-                    </span>
-                    {area.compensations.length > 0 && (
-                      <span className="text-xs text-gray-500">{isSv ? 'Kompensation noterad' : 'Compensation noted'}</span>
-                    )}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xl font-black text-white">{area.score}<span className="text-sm text-gray-500 font-medium">/{area.maxScore}</span></div>
+            
+            {/* Mobility */}
+            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex items-center justify-between">
+              <div>
+                <h4 className="font-semibold text-gray-200">Mobility</h4>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-gray-400">
+                    {profile.mobility.status === 'NOT_TESTED' ? (isSv ? 'Inte testad' : 'Not tested') : `${profile.mobility.areas.length} ${isSv ? 'områden mätta' : 'areas measured'}`}
+                  </span>
                 </div>
               </div>
-            ))}
+            </div>
+
+            {/* Motor Control */}
+            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex items-center justify-between">
+              <div>
+                <h4 className="font-semibold text-gray-200">Motor Control</h4>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-gray-400">
+                    {profile.motorControl.status === 'NOT_TESTED' ? (isSv ? 'Inte testad' : 'Not tested') : `${profile.motorControl.areas.length} ${isSv ? 'områden mätta' : 'areas measured'}`}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Capacity */}
+            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex items-center justify-between">
+              <div>
+                <h4 className="font-semibold text-gray-200">Capacity</h4>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-gray-400">
+                    {profile.capacity.status === 'NOT_TESTED' ? (isSv ? 'Inte testad' : 'Not tested') : `${profile.capacity.areas.length} ${isSv ? 'områden mätta' : 'areas measured'}`}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Power */}
+            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex items-center justify-between">
+              <div>
+                <h4 className="font-semibold text-gray-200 flex items-center gap-2">
+                  Power
+                  <span className="text-[10px] font-bold tracking-wider text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full uppercase">{isSv ? 'Valfri' : 'Optional'}</span>
+                </h4>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-gray-400">
+                    {profile.power.status === 'NOT_TESTED' ? (isSv ? 'Inte testad' : 'Not tested') : `${profile.power.areas.length} ${isSv ? 'områden mätta' : 'areas measured'}`}
+                  </span>
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
 

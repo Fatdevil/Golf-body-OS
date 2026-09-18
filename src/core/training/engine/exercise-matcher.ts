@@ -106,7 +106,8 @@ function scoreExercise(
     const categoryMap: Record<string, string> = {
       'MOBILITY': 'MOBILITY',
       'MOTOR_CONTROL': 'CONTROL',
-      'LOAD_TOLERANCE': 'STRENGTH',
+      'CAPACITY': 'STRENGTH',
+      'POWER': 'POWER',
     };
     if (exercise.category === categoryMap[topDomain]) {
       totalScore += 0.15;
