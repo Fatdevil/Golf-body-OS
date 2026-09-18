@@ -11,6 +11,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
 import { useScreening } from '../../context/ScreeningContext';
 import { StoredScreeningSession } from '../../storage/screening-repository';
 import { AudioCoachService } from '../../core/coaching/audio-coach';
@@ -18,6 +19,7 @@ import { LiveCoachingEngine } from '../../core/coaching/live-coaching-engine';
 import { LiveRotationCoachingEngine } from '../../core/coaching/live-rotation-coaching-engine';
 import { calculateGolfBodyScore, getTierDetailsForScore } from '../../core/metrics/golf-body-score';
 import { CoachingPhraseKey } from '../../core/coaching/i18n/locales';
+import * as GolfBodyPose from '../../../modules/golf-body-pose';
 
 export default function ActiveScreeningScreen() {
   const { activeTestType, language, cancelScreening, finishScreening } = useScreening();
@@ -30,8 +32,16 @@ export default function ActiveScreeningScreen() {
   const [repCount, setRepCount] = useState<number>(0);
   const [currentAngle, setCurrentAngle] = useState<number>(180);
   const [kneeAngle, setKneeAngle] = useState<number>(170);
-  const [lastCue, setLastCue] = useState<string>('Ställ dig i position för att börja');
+  const [lastCue, setLastCue] = useState<string>(
+    language === 'sv-SE' ? 'Ställ dig i position för att börja' : 'Get into position to begin'
+  );
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
+
+  // Vision Camera & Native Pose Module State
+  const { hasPermission, requestPermission } = useCameraPermission();
+  const [cameraPosition, setCameraPosition] = useState<'front' | 'back'>('front');
+  const device = useCameraDevice(cameraPosition);
+  const [nativePoseReady, setNativePoseReady] = useState<boolean>(false);
 
   // Stored measurements across stages (empty until measured)
   const hingeMetricsRef = useRef<{
@@ -92,6 +102,31 @@ export default function ActiveScreeningScreen() {
       }
     };
   }, [language]);
+
+  // Attempt to initialize MediaPipe native module on mount
+  useEffect(() => {
+    let isMounted = true;
+    GolfBodyPose.initialize()
+      .then(() => {
+        if (isMounted) setNativePoseReady(true);
+      })
+      .catch((err: unknown) => {
+        console.warn('[ActiveScreening] MediaPipe native module unavailable:', err);
+        if (isMounted) setNativePoseReady(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const stopSimulation = useCallback(() => {
+    if (simulationIntervalRef.current) {
+      clearInterval(simulationIntervalRef.current);
+      simulationIntervalRef.current = null;
+    }
+    isRunningRef.current = false;
+    setIsSimulating(false);
+  }, []);
 
   const handleHingeComplete = useCallback(() => {
     if (activeTestType === 'FULL_BATTERY') {
@@ -241,7 +276,7 @@ export default function ActiveScreeningScreen() {
       primaryBottlenecks: bodyScore.primaryBottlenecks,
       predictedSwingFaults: predictedFaults,
       prescribedExercises,
-      isSimulated: true,
+      isSimulated: isSimulating,
     };
 
     finishScreening(session);
@@ -318,31 +353,96 @@ export default function ActiveScreeningScreen() {
             {currentStage === 'HINGE' ? 'DELTEST 1: HÖFTFÄLLNING' : 'DELTEST 2: BRÖSTRYGG'}
           </Text>
         </View>
+        {hasPermission && device != null && !isSimulating && (
+          <Pressable
+            style={styles.topFlipButton}
+            onPress={() => setCameraPosition(p => p === 'front' ? 'back' : 'front')}
+          >
+            <Text style={styles.topFlipText}>🔄 {cameraPosition === 'front' ? 'Selfie' : 'Bakre'}</Text>
+          </Pressable>
+        )}
       </View>
 
       {/* Main Viewfinder / Canvas Area */}
       <View style={styles.viewfinder}>
+        {/* Live Camera Feed */}
+        {hasPermission && device != null && !isSimulating && currentStage !== 'STAGE_TRANSITION' && (
+          <Camera
+            style={StyleSheet.absoluteFill}
+            device={device}
+            isActive={true}
+          />
+        )}
+
         {currentStage === 'STAGE_TRANSITION' ? (
           <View style={styles.transitionBox}>
             <Text style={styles.transitionCheck}>✓</Text>
-            <Text style={styles.transitionTitle}>Höftfällning slutförd!</Text>
+            <Text style={styles.transitionTitle}>
+              {language === 'sv-SE' ? 'Höftfällning slutförd!' : 'Hip Hinge Complete!'}
+            </Text>
             <Text style={styles.transitionDesc}>
-              Vänd dig nu mot kameran squarely med armarna korsade över bröstkorgen.
+              {language === 'sv-SE'
+                ? 'Vänd dig nu mot kameran squarely med armarna korsade över bröstkorgen.'
+                : 'Now face the camera squarely with your arms crossed over your chest.'}
             </Text>
             <Pressable style={styles.continueButton} onPress={proceedToRotation}>
-              <Text style={styles.continueButtonText}>Fortsätt till bröstryggstest →</Text>
+              <Text style={styles.continueButtonText}>
+                {language === 'sv-SE' ? 'Fortsätt till bröstryggstest →' : 'Continue to Thoracic Test →'}
+              </Text>
+            </Pressable>
+          </View>
+        ) : !hasPermission && !isSimulating ? (
+          <View style={styles.permissionCard}>
+            <Text style={styles.permissionIcon}>📷</Text>
+            <Text style={styles.permissionTitle}>
+              {language === 'sv-SE' ? 'Kameratillstånd krävs' : 'Camera Permission Required'}
+            </Text>
+            <Text style={styles.permissionDesc}>
+              {language === 'sv-SE'
+                ? 'Golf Body OS använder kameran för att spåra dina ledpositioner och beräkna biomekaniska vinklar i realtid.'
+                : 'Golf Body OS uses the camera to track your joint positions and compute biomechanical angles in real-time.'}
+            </Text>
+            <Pressable style={styles.permissionButton} onPress={requestPermission}>
+              <Text style={styles.permissionButtonText}>
+                {language === 'sv-SE' ? 'Aktivera kamera' : 'Enable Camera'}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={styles.permissionSecondaryButton}
+              onPress={runSimulation}
+            >
+              <Text style={styles.permissionSecondaryText}>
+                {language === 'sv-SE' ? 'Kör med rörelsesimulering istället (Demo) →' : 'Use movement simulation instead (Demo) →'}
+              </Text>
             </Pressable>
           </View>
         ) : (
           <View style={styles.activeOverlay}>
+            {/* Camera Status Badge */}
+            <View style={styles.feedStatusRow}>
+              <View style={[styles.statusBadge, isSimulating ? styles.statusBadgeSim : styles.statusBadgeLive]}>
+                <Text style={styles.statusBadgeText}>
+                  {isSimulating
+                    ? '⚡ SIMULERING (DEMO)'
+                    : `🟢 LIVE KAMERA (${cameraPosition === 'front' ? 'SELFIE' : 'BAKRE'})`}
+                </Text>
+              </View>
+            </View>
+
             {/* Live Angle & Rep Readout */}
             <View style={styles.metricBubble}>
               <Text style={styles.metricLabel}>
-                {currentStage === 'HINGE' ? 'HÖFTVINKEL' : 'ROTATIONSVINKEL'}
+                {currentStage === 'HINGE'
+                  ? (language === 'sv-SE' ? 'HÖFTVINKEL' : 'HIP HINGE ANGLE')
+                  : (language === 'sv-SE' ? 'ROTATIONSVINKEL' : 'ROTATION ANGLE')}
               </Text>
               <Text style={styles.metricValue}>{currentAngle}°</Text>
               {currentStage === 'HINGE' && (
-                <Text style={styles.metricSub}>Knävinkel: {kneeAngle}° (Optimal: 150–165°)</Text>
+                <Text style={styles.metricSub}>
+                  {language === 'sv-SE'
+                    ? `Knävinkel: ${kneeAngle}° (Optimal: 150–165°)`
+                    : `Knee Angle: ${kneeAngle}° (Target: 150–165°)`}
+                </Text>
               )}
             </View>
 
@@ -364,22 +464,28 @@ export default function ActiveScreeningScreen() {
 
       {/* Bottom Controls */}
       <View style={styles.bottomControls}>
-        <Pressable
-          style={[styles.simButton, isSimulating && styles.simButtonActive]}
-          onPress={runSimulation}
-          disabled={isSimulating}
-        >
-          {isSimulating ? (
-            <ActivityIndicator color="#09090B" size="small" />
-          ) : (
-            <Text style={styles.simButtonText}>
-              ▶ Simulera rörelse (Demo)
+        {isSimulating ? (
+          <Pressable style={styles.stopSimButton} onPress={stopSimulation}>
+            <Text style={styles.stopSimButtonText}>
+              {language === 'sv-SE' ? '⏹ Avbryt simulering' : '⏹ Stop Simulation'}
             </Text>
-          )}
-        </Pressable>
+          </Pressable>
+        ) : (
+          <Pressable style={styles.simButton} onPress={runSimulation}>
+            <Text style={styles.simButtonText}>
+              {language === 'sv-SE' ? '▶ Starta rörelsesimulering (Demo)' : '▶ Run Movement Simulation (Demo)'}
+            </Text>
+          </Pressable>
+        )}
 
         <Text style={styles.simHelpText}>
-          Tips: Klicka på 'Simulera rörelse' för att köra en verifierad biomekanisk sekvens utan att ställa upp kameran.
+          {hasPermission && device != null
+            ? (language === 'sv-SE'
+                ? 'Kameran är aktiv och analyserar i realtid. Du kan när som helst testa simuleringsläget för snabbdemo.'
+                : 'Camera is active and analyzing in real-time. You can toggle simulation mode at any time for quick demo.')
+            : (language === 'sv-SE'
+                ? 'Tips: Tillåt kameran ovan för skarp screening, eller starta rörelsesimulering för att testa flödet.'
+                : 'Tip: Allow camera access above for live screening, or run simulation to test the flow.')}
         </Text>
       </View>
     </View>
@@ -414,7 +520,6 @@ const styles = StyleSheet.create({
   stageIndicator: {
     flex: 1,
     alignItems: 'center',
-    marginRight: 40,
   },
   stageTitle: {
     color: '#10B981',
@@ -422,12 +527,26 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 1,
   },
+  topFlipButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: '#18181B',
+    borderWidth: 1,
+    borderColor: '#27272A',
+  },
+  topFlipText: {
+    color: '#A1A1AA',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   viewfinder: {
     flex: 1,
     backgroundColor: '#121216',
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
+    overflow: 'hidden',
   },
   activeOverlay: {
     flex: 1,
@@ -435,6 +554,32 @@ const styles = StyleSheet.create({
     padding: 20,
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  feedStatusRow: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  statusBadge: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  statusBadgeLive: {
+    backgroundColor: 'rgba(16, 185, 129, 0.25)',
+    borderWidth: 1,
+    borderColor: '#10B981',
+  },
+  statusBadgeSim: {
+    backgroundColor: 'rgba(234, 179, 8, 0.25)',
+    borderWidth: 1,
+    borderColor: '#EAB308',
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#F4F4F5',
+    letterSpacing: 0.5,
   },
   metricBubble: {
     backgroundColor: 'rgba(9, 9, 11, 0.85)',
@@ -537,6 +682,55 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
+  permissionCard: {
+    backgroundColor: '#18181B',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    marginHorizontal: 24,
+    borderWidth: 1,
+    borderColor: '#27272A',
+  },
+  permissionIcon: {
+    fontSize: 40,
+    marginBottom: 12,
+  },
+  permissionTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#F4F4F5',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  permissionDesc: {
+    fontSize: 13,
+    color: '#A1A1AA',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 20,
+  },
+  permissionButton: {
+    backgroundColor: '#10B981',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 10,
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  permissionButtonText: {
+    color: '#09090B',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  permissionSecondaryButton: {
+    paddingVertical: 8,
+  },
+  permissionSecondaryText: {
+    color: '#10B981',
+    fontSize: 13,
+    fontWeight: '600',
+  },
   bottomControls: {
     backgroundColor: '#0A0A0C',
     padding: 20,
@@ -549,13 +743,21 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
   },
-  simButtonActive: {
-    backgroundColor: '#059669',
-  },
   simButtonText: {
     fontSize: 15,
     fontWeight: '800',
     color: '#09090B',
+  },
+  stopSimButton: {
+    backgroundColor: '#EF4444',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  stopSimButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   simHelpText: {
     fontSize: 11,
