@@ -284,12 +284,9 @@ export function calculateGolfBodyScore(
       : 'Excessive lateral shoulder dip during turn – risk for lateral sway or reverse spine angle');
   }
 
-  // Fallback defaults if empty
-  if (keyStrengths.length === 0) {
+  // Fallback defaults if empty (do not fabricate bottlenecks when none exist)
+  if (keyStrengths.length === 0 && primaryBottlenecks.length === 0) {
     keyStrengths.push(isSv ? 'God grundläggande rörelsemedvetenhet' : 'Good foundational movement awareness');
-  }
-  if (primaryBottlenecks.length === 0) {
-    primaryBottlenecks.push(isSv ? 'Inga allvarliga rörelsebegränsningar identifierade' : 'No severe movement restrictions identified');
   }
 
   // Summary statement

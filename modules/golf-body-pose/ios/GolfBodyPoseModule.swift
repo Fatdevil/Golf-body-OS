@@ -34,9 +34,8 @@ public class GolfBodyPoseModule: Module {
         throw GolfBodyPoseError.notInitialized
       }
 
-      guard let mpImage = try? MPImage(
-        pixelBuffer: self.createPixelBuffer(from: imageData, width: width, height: height)
-      ) else {
+      let pixelBuffer = try self.createPixelBuffer(from: imageData, width: width, height: height)
+      guard let mpImage = try? MPImage(pixelBuffer: pixelBuffer) else {
         throw GolfBodyPoseError.imageConversionFailed
       }
 
@@ -51,9 +50,8 @@ public class GolfBodyPoseModule: Module {
         throw GolfBodyPoseError.notInitialized
       }
 
-      guard let mpImage = try? MPImage(
-        pixelBuffer: self.createPixelBuffer(from: imageData, width: width, height: height)
-      ) else {
+      let pixelBuffer = try self.createPixelBuffer(from: imageData, width: width, height: height)
+      guard let mpImage = try? MPImage(pixelBuffer: pixelBuffer) else {
         throw GolfBodyPoseError.imageConversionFailed
       }
 
@@ -187,14 +185,19 @@ public class GolfBodyPoseModule: Module {
 
   // MARK: - Private: Pixel Buffer Creation
 
-  private func createPixelBuffer(from data: Data, width: Int, height: Int) -> CVPixelBuffer {
+  private func createPixelBuffer(from data: Data, width: Int, height: Int) throws -> CVPixelBuffer {
+    let expectedBytes = width * height * 3
+    guard data.count == expectedBytes else {
+      throw GolfBodyPoseError.invalidBufferSize(expected: expectedBytes, actual: data.count)
+    }
+
     var pixelBuffer: CVPixelBuffer?
     let attrs: [String: Any] = [
       kCVPixelBufferCGImageCompatibilityKey as String: true,
       kCVPixelBufferCGBitmapContextCompatibilityKey as String: true,
     ]
 
-    CVPixelBufferCreate(
+    let status = CVPixelBufferCreate(
       kCFAllocatorDefault,
       width,
       height,
@@ -203,14 +206,20 @@ public class GolfBodyPoseModule: Module {
       &pixelBuffer
     )
 
-    guard let buffer = pixelBuffer else {
-      fatalError("Failed to create pixel buffer")
+    guard status == kCVReturnSuccess, let buffer = pixelBuffer else {
+      throw GolfBodyPoseError.imageConversionFailed
     }
 
     CVPixelBufferLockBaseAddress(buffer, [])
-    let baseAddress = CVPixelBufferGetBaseAddress(buffer)!
-    data.copyBytes(to: baseAddress.assumingMemoryBound(to: UInt8.self), count: data.count)
-    CVPixelBufferUnlockBaseAddress(buffer, [])
+    defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+
+    guard let baseAddress = CVPixelBufferGetBaseAddress(buffer) else {
+      throw GolfBodyPoseError.imageConversionFailed
+    }
+
+    let bufferSize = CVPixelBufferGetDataSize(buffer)
+    let bytesToCopy = min(data.count, bufferSize)
+    data.copyBytes(to: baseAddress.assumingMemoryBound(to: UInt8.self), count: bytesToCopy)
 
     return buffer
   }
@@ -233,6 +242,7 @@ enum GolfBodyPoseError: Error, LocalizedError {
   case notInitialized
   case modelNotFound
   case imageConversionFailed
+  case invalidBufferSize(expected: Int, actual: Int)
   case inferenceError(String)
 
   var errorDescription: String? {
@@ -243,6 +253,8 @@ enum GolfBodyPoseError: Error, LocalizedError {
       return "pose_landmarker_full.task not found in app bundle."
     case .imageConversionFailed:
       return "Failed to convert image data to MPImage."
+    case .invalidBufferSize(let expected, let actual):
+      return "Invalid buffer size: expected \(expected) bytes (width*height*3), got \(actual) bytes."
     case .inferenceError(let message):
       return "MediaPipe inference failed: \(message)"
     }

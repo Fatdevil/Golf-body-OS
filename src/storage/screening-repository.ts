@@ -58,10 +58,16 @@ const STORAGE_FILE_NAME = 'screening_history_v1.json';
 class ScreeningRepository {
   private cache: StoredScreeningSession[] = [];
   private isLoaded: boolean = false;
+  private memoryOnly: boolean = false;
 
-  constructor() {}
+  constructor(memoryOnly: boolean = false) {
+    this.memoryOnly = memoryOnly;
+  }
 
   private getStorageFile(): File | null {
+    if (this.memoryOnly) {
+      return null;
+    }
     try {
       return new File(Paths.document, STORAGE_FILE_NAME);
     } catch {
@@ -136,16 +142,27 @@ class ScreeningRepository {
       this.cache = this.cache.slice(0, 50);
     }
 
+    if (this.memoryOnly) {
+      return { success: true };
+    }
+
     const file = this.getStorageFile();
     if (file) {
       try {
         file.write(JSON.stringify(this.cache, null, 2));
         return { success: true };
       } catch (err: any) {
+        // Rollback memory cache on disk failure
+        if (existingIdx === -1) {
+          this.cache.shift();
+        }
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     }
     
+    if (existingIdx === -1) {
+      this.cache.shift();
+    }
     return { success: false, error: 'Storage file not available' };
   }
 

@@ -59,10 +59,13 @@ export class SplitSquatPhaseEngine {
   // Current rep tracking
   private currentRepStartFrame: number = 0;
   private currentRepStartTimestamp: number = 0;
+  private lastStandingFrame: number = 0;
+  private lastStandingTimestamp: number = 0;
   private minKneeAngleInRep: number = 180;
   private bottomFrameId: number = 0;
   private bottomTimestamp: number = 0;
   private trunkAngleAtBottom: number = 0;
+  private risingFramesCount: number = 0;
 
   // Stability / idle tracking
   private lastMovementTimestamp: number = 0;
@@ -116,15 +119,21 @@ export class SplitSquatPhaseEngine {
 
     switch (this.phase) {
       case 'READY': {
+        if (leadKneeAngle >= this.config.standingKneeAngleThreshold) {
+          this.lastStandingFrame = frameId;
+          this.lastStandingTimestamp = timestampMs;
+        }
+
         // Check if user starts descending
         if (leadKneeAngle < this.config.descentInitiationAngle) {
           this.phase = 'DESCENT';
-          this.currentRepStartFrame = frameId;
-          this.currentRepStartTimestamp = timestampMs;
+          this.currentRepStartFrame = this.lastStandingFrame > 0 ? this.lastStandingFrame : frameId;
+          this.currentRepStartTimestamp = this.lastStandingTimestamp > 0 ? this.lastStandingTimestamp : timestampMs;
           this.minKneeAngleInRep = leadKneeAngle;
           this.bottomFrameId = frameId;
           this.bottomTimestamp = timestampMs;
           this.trunkAngleAtBottom = trunkAngle;
+          this.risingFramesCount = 0;
           this.lastMovementTimestamp = timestampMs;
         } else {
           // If in READY with completed reps, check if user has stopped for too long (test end)
@@ -145,11 +154,13 @@ export class SplitSquatPhaseEngine {
           this.bottomFrameId = frameId;
           this.bottomTimestamp = timestampMs;
           this.trunkAngleAtBottom = trunkAngle;
-        }
-
-        // Detect inflection point: knee angle started increasing significantly from min
-        if (leadKneeAngle > this.minKneeAngleInRep + 8) {
-          this.phase = 'ASCENT';
+          this.risingFramesCount = 0;
+        } else if (leadKneeAngle > this.minKneeAngleInRep + 5) {
+          this.risingFramesCount++;
+          // Detect inflection point: knee angle consistently rising across inflectionWindowFrames
+          if (this.risingFramesCount >= this.config.inflectionWindowFrames) {
+            this.phase = 'ASCENT';
+          }
         }
         break;
       }

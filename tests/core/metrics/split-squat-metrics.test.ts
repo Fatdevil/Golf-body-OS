@@ -26,7 +26,7 @@ import type { GolfBodyScoreResult } from '../../../src/core/metrics/golf-body-sc
 
 describe('Split Squat Phase Engine', () => {
   it('detects a completed deep repetition', () => {
-    const engine = new SplitSquatPhaseEngine();
+    const engine = new SplitSquatPhaseEngine({ inflectionWindowFrames: 1 });
 
     // 1. Standing in ready position (knee ~165°)
     engine.processFrame(1, 0, 165, 5);
@@ -50,7 +50,7 @@ describe('Split Squat Phase Engine', () => {
     expect(engine.totalRepCount).toBe(1);
     expect(engine.validRepCount).toBe(1);
 
-    const rep = engine.completedReps[0];
+    const rep = engine.completedReps[0]!;
     expect(rep.minKneeAngleDeg).toBe(90);
     expect(rep.isValidDepth).toBe(true);
     expect(rep.descentDurationMs).toBe(800);
@@ -58,7 +58,7 @@ describe('Split Squat Phase Engine', () => {
   });
 
   it('marks shallow reps as invalid', () => {
-    const engine = new SplitSquatPhaseEngine();
+    const engine = new SplitSquatPhaseEngine({ inflectionWindowFrames: 1 });
 
     // Rep 1: Shallow (reaches only 120°, threshold is 100°)
     engine.processFrame(1, 0, 165);
@@ -69,11 +69,11 @@ describe('Split Squat Phase Engine', () => {
 
     expect(engine.totalRepCount).toBe(1);
     expect(engine.validRepCount).toBe(0);
-    expect(engine.completedReps[0].isValidDepth).toBe(false);
+    expect(engine.completedReps[0]!.isValidDepth).toBe(false);
   });
 
   it('terminates test after prolonged inactivity in standing', () => {
-    const engine = new SplitSquatPhaseEngine({ maxIdleDurationMs: 2000 });
+    const engine = new SplitSquatPhaseEngine({ maxIdleDurationMs: 2000, inflectionWindowFrames: 1 });
 
     // Complete 1 rep
     engine.processFrame(1, 0, 165);

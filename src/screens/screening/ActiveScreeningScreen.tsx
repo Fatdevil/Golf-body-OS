@@ -16,8 +16,7 @@ import { StoredScreeningSession } from '../../storage/screening-repository';
 import { AudioCoachService } from '../../core/coaching/audio-coach';
 import { LiveCoachingEngine } from '../../core/coaching/live-coaching-engine';
 import { LiveRotationCoachingEngine } from '../../core/coaching/live-rotation-coaching-engine';
-import { calculateGolfBodyScore } from '../../core/metrics/golf-body-score';
-import { BodySwingCorrelator } from '../../core/correlation/body-swing-correlator';
+import { calculateGolfBodyScore, getTierDetailsForScore } from '../../core/metrics/golf-body-score';
 import { CoachingPhraseKey } from '../../core/coaching/i18n/locales';
 
 export default function ActiveScreeningScreen() {
@@ -34,20 +33,20 @@ export default function ActiveScreeningScreen() {
   const [lastCue, setLastCue] = useState<string>('Ställ dig i position för att börja');
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
 
-  // Stored measurements across stages
+  // Stored measurements across stages (empty until measured)
   const hingeMetricsRef = useRef<{
-    hingeAngle: number;
-    kneeAngle: number;
+    hingeAngle?: number;
+    kneeAngle?: number;
     compensations: string[];
-  }>({ hingeAngle: 86, kneeAngle: 156, compensations: [] });
+  }>({ compensations: [] });
 
   const rotationMetricsRef = useRef<{
-    leftDeg: number;
-    rightDeg: number;
-    asymmetryDeg: number;
-    pelvicTurnDeg: number;
+    leftDeg?: number;
+    rightDeg?: number;
+    asymmetryDeg?: number;
+    pelvicTurnDeg?: number;
     compensations: string[];
-  }>({ leftDeg: 44, rightDeg: 42, asymmetryDeg: 2, pelvicTurnDeg: 12, compensations: [] });
+  }>({ compensations: [] });
 
   const audioCoachRef = useRef<AudioCoachService | null>(null);
   const liveHingeEngineRef = useRef<LiveCoachingEngine | null>(null);
@@ -115,8 +114,11 @@ export default function ActiveScreeningScreen() {
   };
 
   const finalizeOverallResult = () => {
-    // 1. Build DeviceValidationReport for Hip Hinge
-    const hingeReport: any = {
+    const hasHinge = activeTestType !== 'THORACIC_ROTATION' && hingeMetricsRef.current.hingeAngle !== undefined;
+    const hasRotation = activeTestType !== 'HIP_HINGE' && rotationMetricsRef.current.leftDeg !== undefined;
+
+    // 1. Build DeviceValidationReport for Hip Hinge if performed
+    const hingeReport: any = hasHinge ? {
       measurement: {
         metrics: [
           { id: 'HIP_HINGE_ANGLE_2D', value: hingeMetricsRef.current.hingeAngle },
@@ -124,10 +126,10 @@ export default function ActiveScreeningScreen() {
         ],
         compensations: hingeMetricsRef.current.compensations.map(c => ({ type: c }))
       }
-    };
+    } : null;
 
-    // 2. Build ThoracicRotationResult
-    const rotResult: any = {
+    // 2. Build ThoracicRotationResult if performed
+    const rotResult: any = hasRotation ? {
       maxRotationLeft: rotationMetricsRef.current.leftDeg,
       maxRotationRight: rotationMetricsRef.current.rightDeg,
       rotationAsymmetry: rotationMetricsRef.current.asymmetryDeg,
@@ -135,98 +137,110 @@ export default function ActiveScreeningScreen() {
       pelvicTurnAtPeakRight: rotationMetricsRef.current.pelvicTurnDeg,
       compensations: {
         excessiveLateralTilt: false,
-        excessivePelvicRotation: rotationMetricsRef.current.pelvicTurnDeg > 20,
-        severeAsymmetry: rotationMetricsRef.current.asymmetryDeg > 12
+        excessivePelvicRotation: (rotationMetricsRef.current.pelvicTurnDeg ?? 0) > 20,
+        severeAsymmetry: (rotationMetricsRef.current.asymmetryDeg ?? 0) > 12
       }
-    };
+    } : null;
 
     // 3. Compute Golf Body Score
-    const bodyScore = calculateGolfBodyScore(
-      activeTestType === 'THORACIC_ROTATION' ? null : hingeReport,
-      activeTestType === 'HIP_HINGE' ? null : rotResult,
-      language
-    );
+    const bodyScore = calculateGolfBodyScore(hingeReport, rotResult, language);
 
-    // 4. Correlate with Golf Swing Faults using BodySwingCorrelator
-    const mockSwingForCorrelator: any = {
-      faults: [
-        { id: 'EARLY_EXTENSION', name: 'Early Extension' },
-        { id: 'REVERSE_SPINE', name: 'Reverse Spine Angle' },
-        { id: 'SWAY_BACKSWING', name: 'Sway' }
-      ]
-    };
-
-    const correlations = BodySwingCorrelator.correlate(bodyScore, mockSwingForCorrelator);
-
-    const predictedFaults = correlations.map(c => ({
-      faultId: c.relatedSwingFaultId,
-      title: c.title[language] || c.title['sv-SE'],
-      explanation: c.explanation[language] || c.explanation['sv-SE'],
-      prescription: c.prescription[language] || c.prescription['sv-SE']
-    }));
-
-    // If no faults were correlated, provide positive reinforcement
-    if (predictedFaults.length === 0 && bodyScore.primaryBottlenecks.length > 0) {
-      predictedFaults.push({
-        faultId: 'LOSS_OF_POSTURE',
-        title: 'Begränsad rörelsefrihet i baksvingen',
-        explanation: 'Dina mätvärden indikerar att du kan tvingas kompensera med armarna i baksvingen.',
-        prescription: 'Arbeta med dynamisk uppvärmning och rörlighet för att skapa friare rotation.'
-      });
-    }
-
-    // Normalize score for individual tests (single pillar maxes at 50, not 100)
+    // 4. Normalize score and category tier for individual tests (denominator consistency)
     const isIndividualTest = activeTestType === 'HIP_HINGE' || activeTestType === 'THORACIC_ROTATION';
     const normalizedScore = isIndividualTest
       ? Math.min(100, bodyScore.totalScore * 2)
       : bodyScore.totalScore;
+
+    const tierDetails = getTierDetailsForScore(normalizedScore, language === 'sv-SE');
+
+    // 5. Honest Body-Swing Potential Influence (no fabricated swing faults)
+    const predictedFaults: StoredScreeningSession['predictedSwingFaults'] = [];
+    const isSv = language === 'sv-SE';
+
+    if (hasHinge && (hingeMetricsRef.current.hingeAngle ?? 180) > 95) {
+      predictedFaults.push({
+        faultId: 'EARLY_EXTENSION',
+        title: isSv ? 'Möjlig påverkan: Hållning i nedsvingen' : 'Potential Influence: Downswing Posture',
+        explanation: isSv
+          ? 'Begränsat höftfällningsdjup kan göra det mer krävande att bibehålla bäckenets avstånd till bollen (risk för tidig extension).'
+          : 'Limited hip hinge depth may make it more demanding to maintain pelvic posture through impact.',
+        prescription: isSv
+          ? 'Höftfällning mot vägg och sätesaktivering för stabilare höftledsrörelse.'
+          : 'Wall hip hinge and glute activation for stable hip movement.'
+      });
+    }
+
+    if (hasRotation && ((rotationMetricsRef.current.leftDeg ?? 45) < 35 || (rotationMetricsRef.current.rightDeg ?? 45) < 35)) {
+      predictedFaults.push({
+        faultId: 'LOSS_OF_POSTURE',
+        title: isSv ? 'Möjlig påverkan: Svingbåge & Rotation' : 'Potential Influence: Swing Turn & Arc',
+        explanation: isSv
+          ? 'Minskad bröstryggsrörlighet kan fresta kroppen att kompensera med armlyft eller lateral rörelse istället för ren rotation.'
+          : 'Restricted thoracic mobility can tempt compensatory arm lifting or lateral sway instead of clean rotation.',
+        prescription: isSv
+          ? 'Open books och bröstryggsrotation med klubba.'
+          : 'Open books and seated thoracic rotation with club.'
+      });
+    }
+
+    // 6. Targeted Prescribed Exercises (only relevant to performed tests)
+    const prescribedExercises: StoredScreeningSession['prescribedExercises'] = [];
+    if (hasHinge) {
+      prescribedExercises.push({
+        name: isSv ? 'Höftfällning mot vägg' : 'Wall Hip Hinge',
+        targetFault: isSv ? 'Höftledsrörlighet & Hållning' : 'Hip Mobility & Posture',
+        setsReps: '3 set × 10 reps',
+        description: isSv ? 'Fäll från höften med neutral ryggrad och känn sätets kontakt.' : 'Hinge from hips keeping spine neutral.'
+      });
+    }
+    if (hasRotation) {
+      prescribedExercises.push({
+        name: isSv ? 'Thoracic Open Books' : 'Thoracic Open Books',
+        targetFault: isSv ? 'Bröstryggsrotation' : 'Thoracic Rotation',
+        setsReps: '2 set × 8 reps/sida',
+        description: isSv ? 'Ligg på sidan med knäna låsta och rotera bröstkorgen kontrollerat.' : 'Lie on side with knees locked, rotate torso slowly.'
+      });
+    }
+    if (prescribedExercises.length === 0) {
+      prescribedExercises.push({
+        name: isSv ? 'Världens bästa stretch' : "World's Greatest Stretch",
+        targetFault: isSv ? 'Allmän rörlighet' : 'General Mobility',
+        setsReps: '2 set × 5 reps/sida',
+        description: isSv ? 'Kombinerad höft- och bröstryggsöppnare.' : 'Combined hip and thoracic mobility opener.'
+      });
+    }
 
     const session: StoredScreeningSession = {
       id: `session_${Date.now()}`,
       timestampMs: Date.now(),
       testType: activeTestType || 'FULL_BATTERY',
       golfBodyScore: normalizedScore,
-      tier: bodyScore.tier,
-      tierLabel: bodyScore.tierLabel,
-      tierColor: bodyScore.tierColor,
+      tier: tierDetails.tier,
+      tierLabel: tierDetails.tierLabel,
+      tierColor: tierDetails.tierColor,
       subScores: {
-        hipHinge: bodyScore.hipHinge.total,
-        thoracicRotation: bodyScore.thoracic.total
+        hipHinge: hasHinge ? bodyScore.hipHinge.total : 0,
+        thoracicRotation: hasRotation ? bodyScore.thoracic.total : 0
       },
       angles: {
-        hipHingeFlexionDeg: hingeMetricsRef.current.hingeAngle,
-        hipHingeKneeDeg: hingeMetricsRef.current.kneeAngle,
-        thoracicLeftDeg: rotationMetricsRef.current.leftDeg,
-        thoracicRightDeg: rotationMetricsRef.current.rightDeg,
-        thoracicAsymmetryDeg: rotationMetricsRef.current.asymmetryDeg,
-        pelvicTurnDeg: rotationMetricsRef.current.pelvicTurnDeg
+        ...(hasHinge ? {
+          hipHingeFlexionDeg: hingeMetricsRef.current.hingeAngle,
+          hipHingeKneeDeg: hingeMetricsRef.current.kneeAngle,
+        } : {}),
+        ...(hasRotation ? {
+          thoracicLeftDeg: rotationMetricsRef.current.leftDeg,
+          thoracicRightDeg: rotationMetricsRef.current.rightDeg,
+          thoracicAsymmetryDeg: rotationMetricsRef.current.asymmetryDeg,
+          pelvicTurnDeg: rotationMetricsRef.current.pelvicTurnDeg,
+        } : {})
       },
       compensations: [
-        ...hingeMetricsRef.current.compensations,
-        ...rotationMetricsRef.current.compensations
+        ...(hasHinge ? hingeMetricsRef.current.compensations : []),
+        ...(hasRotation ? rotationMetricsRef.current.compensations : [])
       ],
       primaryBottlenecks: bodyScore.primaryBottlenecks,
       predictedSwingFaults: predictedFaults,
-      prescribedExercises: [
-        {
-          name: 'Höftfällning mot vägg',
-          targetFault: 'Early Extension',
-          setsReps: '3 set × 10 reps',
-          description: 'Håll sätet mot tush-linjen och bibehåll neutral svank.'
-        },
-        {
-          name: 'Bilateral T-spine rotation med foam roller',
-          targetFault: 'Reverse Spine Angle',
-          setsReps: '2 set × 8 reps per sida',
-          description: 'Lås höfterna och rotera enbart bröstryggen.'
-        },
-        {
-          name: 'Open Book & Rib Grab',
-          targetFault: 'Loss of Posture',
-          setsReps: '2 set × 6 andetag',
-          description: 'Öka den aktiva rotationsförmågan i bröstkorgen.'
-        }
-      ],
+      prescribedExercises,
       isSimulated: true,
     };
 
@@ -264,7 +278,8 @@ export default function ActiveScreeningScreen() {
           clearInterval(interval);
           simulationIntervalRef.current = null;
           isRunningRef.current = false;
-          setIsSimulating(false);
+          // Record simulated hinge metrics
+          hingeMetricsRef.current = { hingeAngle: 86, kneeAngle: 158, compensations: [] };
           handleHingeComplete();
         }
       } else if (currentStage === 'ROTATION') {
@@ -280,6 +295,8 @@ export default function ActiveScreeningScreen() {
           simulationIntervalRef.current = null;
           isRunningRef.current = false;
           setIsSimulating(false);
+          // Record simulated rotation metrics
+          rotationMetricsRef.current = { leftDeg: 44, rightDeg: 42, asymmetryDeg: 2, pelvicTurnDeg: 12, compensations: [] };
           handleRotationComplete();
         }
       }

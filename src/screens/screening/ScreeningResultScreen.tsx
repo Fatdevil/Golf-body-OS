@@ -125,32 +125,40 @@ export default function ScreeningResultScreen() {
         </View>
       </View>
 
-      {/* The Causal Bridge — THE USP */}
+      {/* Biomechanical-to-Swing Bridge */}
       <View style={styles.section}>
         <View style={styles.bridgeHeaderBox}>
-          <Text style={styles.bridgeBadge}>ORSAKSSAMBAND</Text>
-          <Text style={styles.sectionTitle}>Vad betyder detta för din sving?</Text>
+          <Text style={styles.bridgeBadge}>POTENTIELL PÅVERKAN</Text>
+          <Text style={styles.sectionTitle}>Vad kan detta betyda för din sving?</Text>
         </View>
 
-        {predictedSwingFaults.map((fault, idx) => (
-          <View key={idx} style={styles.faultCard}>
-            <View style={styles.faultHeader}>
-              <Text style={styles.faultAlertIcon}>⚠️</Text>
-              <Text style={styles.faultTitle}>{fault.title}</Text>
-            </View>
-            <Text style={styles.faultExplanation}>{fault.explanation}</Text>
-
-            <View style={styles.prescriptionBox}>
-              <Text style={styles.prescriptionTitle}>💡 Åtgärd:</Text>
-              <Text style={styles.prescriptionText}>{fault.prescription}</Text>
-            </View>
+        {predictedSwingFaults.length === 0 ? (
+          <View style={styles.faultCard}>
+            <Text style={styles.faultExplanation}>
+              Inga signifikanta rörelsebegränsningar med känd negativ svingpåverkan identifierades. Bra grund för en obegränsad rotation!
+            </Text>
           </View>
-        ))}
+        ) : (
+          predictedSwingFaults.map((fault, idx) => (
+            <View key={idx} style={styles.faultCard}>
+              <View style={styles.faultHeader}>
+                <Text style={styles.faultAlertIcon}>⚠️</Text>
+                <Text style={styles.faultTitle}>{fault.title}</Text>
+              </View>
+              <Text style={styles.faultExplanation}>{fault.explanation}</Text>
+
+              <View style={styles.prescriptionBox}>
+                <Text style={styles.prescriptionTitle}>💡 Åtgärd:</Text>
+                <Text style={styles.prescriptionText}>{fault.prescription}</Text>
+              </View>
+            </View>
+          ))
+        )}
       </View>
 
       {/* Prescribed Corrective Exercises */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>3 Prioriterade övningar</Text>
+        <Text style={styles.sectionTitle}>Prioriterade övningar</Text>
         {prescribedExercises.map((ex, idx) => (
           <View key={idx} style={styles.exerciseCard}>
             <View style={styles.exerciseNumberBadge}>

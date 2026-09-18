@@ -29,7 +29,7 @@ interface ScreeningContextValue {
   latestSession: StoredScreeningSession | null;
   isLoading: boolean;
   refreshSessions: () => Promise<void>;
-  saveScreeningSession: (session: StoredScreeningSession) => Promise<void>;
+  saveScreeningSession: (session: StoredScreeningSession) => Promise<{ success: boolean; error?: string }>;
   clearHistory: () => Promise<void>;
 
   // Active screening workflow
@@ -74,9 +74,13 @@ export function ScreeningProvider({ children }: { children: ReactNode }) {
     refreshSessions();
   }, [refreshSessions]);
 
-  const saveScreeningSession = useCallback(async (session: StoredScreeningSession) => {
-    await screeningRepository.saveSession(session);
+  const saveScreeningSession = useCallback(async (session: StoredScreeningSession): Promise<{ success: boolean; error?: string }> => {
+    const res = await screeningRepository.saveSession(session);
+    if (!res.success) {
+      console.error('[ScreeningContext] Failed to persist session:', res.error);
+    }
     await refreshSessions();
+    return res;
   }, [refreshSessions]);
 
   const clearHistory = useCallback(async () => {
@@ -93,8 +97,11 @@ export function ScreeningProvider({ children }: { children: ReactNode }) {
 
   const finishScreening = useCallback(async (result: StoredScreeningSession) => {
     setCurrentResult(result);
+    const saveRes = await saveScreeningSession(result);
+    if (!saveRes.success) {
+      console.warn('[ScreeningContext] Session could not be persisted to disk:', saveRes.error);
+    }
     setActiveScreeningStep('RESULT');
-    await saveScreeningSession(result);
   }, [saveScreeningSession]);
 
   const cancelScreening = useCallback(() => {

@@ -86,6 +86,7 @@ export function evaluateSplitSquatSet(
   let fatiguePointRep: number | null = null;
   for (let i = 3; i < reps.length; i++) {
     const rep = reps[i];
+    if (!rep) continue;
     // Form degradation: depth becomes 15° shallower or trunk leans forward by > 12°
     const depthLoss = rep.minKneeAngleDeg - baselineDepth; // higher angle = shallower
     const trunkLeanIncrease = rep.trunkAngleAtBottomDeg - baselineTrunk;
