@@ -20,6 +20,13 @@ import type {
 } from '../../metrics/golf-body-score';
 import type { BodyProfile, DomainAssessment, AreaScore, AreaQuality, GolfBodyTier } from '../types/body-profile';
 import type { BodyFinding } from '../types/body-finding';
+import type { SplitSquatSetResult } from '../../metrics/split-squat-metrics';
+import { evaluateSplitSquatAsymmetry } from '../../metrics/split-squat-metrics';
+
+export interface SplitSquatAssessmentData {
+  left: SplitSquatSetResult;
+  right: SplitSquatSetResult;
+}
 
 // ---------------------------------------------------------------------------
 // Quality assessment helpers
@@ -292,6 +299,7 @@ export function screeningToProfile(
   score: GolfBodyScoreResult,
   userId: string = 'default-user',
   profileId?: string,
+  capacityData?: SplitSquatAssessmentData,
 ): BodyProfile {
   const now = new Date();
 
@@ -362,8 +370,8 @@ export function screeningToProfile(
     source: controlAreas.length > 0 ? 'INFERRED' : 'INFERRED',
   };
 
-  // Capacity domain (not tested in base screening)
-  const capacity: DomainAssessment = {
+  // Capacity domain
+  let capacity: DomainAssessment = {
     domain: 'CAPACITY',
     status: 'NOT_TESTED',
     areas: [],
@@ -387,7 +395,7 @@ export function screeningToProfile(
   // Extract findings
   const { bottlenecks, strengths } = extractFindings(score);
 
-  return {
+  const baseProfile: BodyProfile = {
     id: profileId ?? `profile-${Date.now()}`,
     userId,
     createdAt: now,
@@ -400,5 +408,130 @@ export function screeningToProfile(
     golfBodyTier: tierToGolfBodyTier(score.tier),
     primaryBottlenecks: bottlenecks,
     keyStrengths: strengths,
+  };
+
+  return capacityData ? applySplitSquatAssessment(baseProfile, capacityData) : baseProfile;
+}
+
+/**
+ * Pure function to augment an existing BodyProfile with Split Squat Capacity assessment results.
+ */
+export function applySplitSquatAssessment(
+  profile: BodyProfile,
+  data: SplitSquatAssessmentData
+): BodyProfile {
+  const now = new Date();
+  const maxTargetReps = 15;
+
+  const leftNormScore = Math.min(25, Math.round((data.left.validReps / maxTargetReps) * 25));
+  const rightNormScore = Math.min(25, Math.round((data.right.validReps / maxTargetReps) * 25));
+
+  const leftArea: AreaScore = {
+    areaId: 'split-squat-capacity-left',
+    label: { sv: 'Benkapacitet Vänster', en: 'Left Leg Capacity' },
+    score: leftNormScore,
+    maxScore: 25,
+    quality: data.left.quality,
+    rawMeasurements: {
+      totalReps: data.left.totalReps,
+      validReps: data.left.validReps,
+      averageDepthDeg: data.left.averageDepthDeg,
+      depthConsistencyScore: data.left.depthConsistencyScore,
+    },
+    compensations: data.left.compensations,
+    lastTestedAt: now,
+  };
+
+  const rightArea: AreaScore = {
+    areaId: 'split-squat-capacity-right',
+    label: { sv: 'Benkapacitet Höger', en: 'Right Leg Capacity' },
+    score: rightNormScore,
+    maxScore: 25,
+    quality: data.right.quality,
+    rawMeasurements: {
+      totalReps: data.right.totalReps,
+      validReps: data.right.validReps,
+      averageDepthDeg: data.right.averageDepthDeg,
+      depthConsistencyScore: data.right.depthConsistencyScore,
+    },
+    compensations: data.right.compensations,
+    lastTestedAt: now,
+  };
+
+  const areas: AreaScore[] = [leftArea, rightArea];
+  const totalScore = leftNormScore + rightNormScore;
+  const compositeScore = Math.round((totalScore / 50) * 100);
+
+  const updatedCapacity: DomainAssessment = {
+    domain: 'CAPACITY',
+    status: 'MEASURED',
+    areas,
+    compositeScore,
+    confidence: 'HIGH',
+    lastTestedAt: now,
+    source: 'TARGETED_RETEST',
+  };
+
+  // Evaluate asymmetry
+  const asymmetry = evaluateSplitSquatAsymmetry(data.left, data.right);
+  const additionalBottlenecks: BodyFinding[] = [];
+  const additionalStrengths: BodyFinding[] = [];
+
+  if (asymmetry.severity !== 'NONE') {
+    additionalBottlenecks.push({
+      id: 'split-squat-asymmetry',
+      domain: 'CAPACITY',
+      areaId: 'split-squat-asymmetry',
+      type: 'ASYMMETRY',
+      severity: asymmetry.severity === 'SIGNIFICANT' ? 'SIGNIFICANT' : 'MODERATE',
+      label: { sv: 'Asymmetri i benkapacitet', en: 'Leg capacity asymmetry' },
+      description: asymmetry.findingDescription ?? {
+        sv: `Skillnad mellan vänster och höger benkapacitet`,
+        en: `Difference between left and right leg capacity`,
+      },
+      compatibleExerciseTags: ['split-squat-asymmetry', 'hip-mobility-poor', 'glute-activation-poor'],
+      confidence: 'HIGH',
+    });
+  }
+
+  // Check for low overall capacity (< 6 valid reps on either side)
+  if (data.left.validReps < 6 || data.right.validReps < 6) {
+    additionalBottlenecks.push({
+      id: 'leg-capacity-low',
+      domain: 'CAPACITY',
+      areaId: 'split-squat-capacity-low',
+      type: 'LIMITATION',
+      severity: (data.left.validReps < 4 || data.right.validReps < 4) ? 'SIGNIFICANT' : 'MODERATE',
+      label: { sv: 'Begränsad funktionell benkapacitet', en: 'Limited functional leg capacity' },
+      description: {
+        sv: `Repetitionsantal under målnivå (V: ${data.left.validReps}, H: ${data.right.validReps})`,
+        en: `Rep count below target (L: ${data.left.validReps}, R: ${data.right.validReps})`,
+      },
+      compatibleExerciseTags: ['leg-capacity-low', 'glute-activation-poor'],
+      confidence: 'HIGH',
+    });
+  } else if (data.left.validReps >= 12 && data.right.validReps >= 12) {
+    additionalStrengths.push({
+      id: 'leg-capacity-good',
+      domain: 'CAPACITY',
+      areaId: 'split-squat-capacity-good',
+      type: 'STRENGTH',
+      severity: 'MILD',
+      label: { sv: 'God funktionell benkapacitet', en: 'Good functional leg capacity' },
+      description: {
+        sv: 'Hög och symmetrisk repetitionsuthållighet i båda benen',
+        en: 'High and symmetrical repetition endurance in both legs',
+      },
+      compatibleExerciseTags: [],
+      confidence: 'HIGH',
+    });
+  }
+
+  return {
+    ...profile,
+    updatedAt: now,
+    capacity: updatedCapacity,
+    primaryBottlenecks: [...profile.primaryBottlenecks, ...additionalBottlenecks],
+    keyStrengths: [...profile.keyStrengths, ...additionalStrengths],
   };
 }
