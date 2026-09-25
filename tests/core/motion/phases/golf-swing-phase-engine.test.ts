@@ -1,6 +1,7 @@
 import { GolfSwingPhaseEngine, NoSwingDetectedError } from '../../../../src/core/motion/phases/golf-swing-phase-engine';
 import { generate240FpsSwingSequence } from '../../../../src/core/data/sample-240fps-swing';
-import { ORDERED_SWING_PHASES } from '../../../../src/core/types/golf-swing';
+import { ORDERED_SWING_PHASES, POSE_ONLY_MODE_CAPS } from '../../../../src/core/types/golf-swing';
+import { LandmarkId } from '../../../../src/core/types/landmark';
 
 describe('GolfSwingPhaseEngine', () => {
   let engine: GolfSwingPhaseEngine;
@@ -496,10 +497,15 @@ describe('GolfSwingPhaseEngine', () => {
     expect(result.phases.P4_TOP.frameIndex).toBeLessThan(result.phases.P7_IMPACT.frameIndex);
     expect(result.phases.P7_IMPACT.frameIndex).toBeLessThan(result.phases.P10_FINISH.frameIndex);
 
-    // Fallback should NOT have been triggered!
-    expect(result.phases.P1_ADDRESS.confidence).toBeGreaterThan(0.9);
-    expect(result.phases.P4_TOP.confidence).toBeGreaterThan(0.9);
-    expect(result.phases.P7_IMPACT.confidence).toBeGreaterThan(0.9);
+    // Honest AI verification: P1 and P4 are exact detections, P7 is an impact proxy
+    expect(result.phases.P1_ADDRESS.confidence).toBeGreaterThanOrEqual(0.85);
+    expect(result.phases.P1_ADDRESS.status).toBe('DETECTED_EXACT');
+    expect(result.phases.P4_TOP.confidence).toBeGreaterThanOrEqual(0.80);
+    expect(result.phases.P4_TOP.status).toBe('DETECTED_EXACT');
+    expect(result.phases.P7_IMPACT.confidence).toBeLessThanOrEqual(0.50);
+    expect(result.phases.P7_IMPACT.status).toBe('DETECTED_PROXY');
+    expect(result.phases.P7_IMPACT.warnings).toContain('NO_CLUB_SIGNAL');
+    expect(result.phases.P7_IMPACT.warnings).toContain('NO_BALL_CONTACT_SIGNAL');
     expect(result.tempo.tempoRatio).toBeGreaterThanOrEqual(2.0);
   });
 
@@ -552,6 +558,93 @@ describe('GolfSwingPhaseEngine', () => {
     expect(p5).toBeGreaterThan(p4);
     expect(p6).toBeGreaterThan(p5);
     expect(p7).toBeGreaterThan(p6);
+  });
+
+  describe('Honest AI P1–P10 Proxy Contract', () => {
+    it('should assign DETECTED_EXACT to body positions (P1, P3, P4, P5, P9, P10)', () => {
+      const frames = generate240FpsSwingSequence(480);
+      const result = engine.analyzeSequence(frames);
+
+      const exactPhases: SwingPhaseId[] = [
+        'P1_ADDRESS',
+        'P3_HALFWAY_BACK',
+        'P4_TOP',
+        'P5_SHALLOW',
+        'P9_REHINGE',
+        'P10_FINISH'
+      ];
+
+      for (const phaseId of exactPhases) {
+        const evt = result.phases[phaseId];
+        expect(evt.status).toBe('DETECTED_EXACT');
+        expect(evt.warnings).toEqual([]);
+      }
+    });
+
+    it('should assign DETECTED_PROXY and disclosure warnings to club/ball positions (P2, P6, P7, P8)', () => {
+      const frames = generate240FpsSwingSequence(480);
+      const result = engine.analyzeSequence(frames);
+
+      const proxyPhases: SwingPhaseId[] = [
+        'P2_TAKEAWAY',
+        'P6_DELIVERY',
+        'P7_IMPACT',
+        'P8_RELEASE'
+      ];
+
+      for (const phaseId of proxyPhases) {
+        const evt = result.phases[phaseId];
+        expect(evt.status).toBe('DETECTED_PROXY');
+        expect(evt.warnings).toContain('NO_CLUB_SIGNAL');
+      }
+
+      // P7 Impact must also warn that ball contact is unverified
+      expect(result.phases.P7_IMPACT.warnings).toContain('NO_BALL_CONTACT_SIGNAL');
+    });
+
+    it('should strictly cap confidence according to POSE_ONLY_MODE_CAPS for all 10 positions', () => {
+      const frames = generate240FpsSwingSequence(480);
+      const result = engine.analyzeSequence(frames);
+
+      for (const phaseId of ORDERED_SWING_PHASES) {
+        const evt = result.phases[phaseId];
+        const cap = POSE_ONLY_MODE_CAPS[phaseId];
+        expect(evt.confidence).toBeLessThanOrEqual(cap);
+        expect(evt.confidence).toBeGreaterThan(0.20);
+      }
+
+      // Exact values on pristine synthetic frames
+      expect(result.phases.P1_ADDRESS.confidence).toBe(0.90);
+      expect(result.phases.P2_TAKEAWAY.confidence).toBe(0.55);
+      expect(result.phases.P3_HALFWAY_BACK.confidence).toBe(0.85);
+      expect(result.phases.P4_TOP.confidence).toBe(0.85);
+      expect(result.phases.P5_SHALLOW.confidence).toBe(0.85);
+      expect(result.phases.P6_DELIVERY.confidence).toBe(0.55);
+      expect(result.phases.P7_IMPACT.confidence).toBe(0.50);
+      expect(result.phases.P8_RELEASE.confidence).toBe(0.55);
+      expect(result.phases.P9_REHINGE.confidence).toBe(0.80);
+      expect(result.phases.P10_FINISH.confidence).toBe(0.90);
+    });
+
+    it('should degrade confidence dynamically when landmarks have reduced visibility', () => {
+      const frames = generate240FpsSwingSequence(480);
+      // Degrade wrist visibility across all frames to 0.40
+      const degradedFrames = frames.map(f => ({
+        ...f,
+        landmarks: f.landmarks.map(lm => {
+          if (lm.id === LandmarkId.LEFT_WRIST || lm.id === LandmarkId.RIGHT_WRIST) {
+            return { ...lm, visibility: 0.40 };
+          }
+          return lm;
+        })
+      }));
+
+      const result = engine.analyzeSequence(degradedFrames);
+
+      // P1 address depends on wrists: confidence should be lower than pristine 0.90
+      expect(result.phases.P1_ADDRESS.confidence).toBeLessThan(0.90);
+      expect(result.phases.P1_ADDRESS.confidence).toBeGreaterThan(0.30);
+    });
   });
 });
 

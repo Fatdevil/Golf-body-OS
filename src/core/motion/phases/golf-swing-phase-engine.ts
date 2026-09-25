@@ -19,7 +19,10 @@ import {
   GolfSwingAnalysisResult,
   ORDERED_SWING_PHASES,
   SwingPhaseEvent,
-  SwingPhaseId
+  SwingPhaseId,
+  EventDetectionStatus,
+  POSE_ONLY_MODE_CAPS,
+  PROXY_PHASE_WARNINGS
 } from '../../types/golf-swing';
 import {
   extractPhaseKinematics,
@@ -231,14 +234,7 @@ export class GolfSwingPhaseEngine {
       const idx = phaseIndices[phaseId];
       const targetFrame = frames[idx] || frames[0];
       if (!targetFrame) continue;
-      const isAnchor = phaseId === 'P1_ADDRESS' || phaseId === 'P4_TOP' || phaseId === 'P7_IMPACT' || phaseId === 'P10_FINISH';
-      const confidence = isAnchor ? 0.95 : 0.90;
-      const evt: SwingPhaseEvent = {
-        phaseId,
-        frameIndex: idx,
-        timestampMs: targetFrame.timestampMs,
-        confidence
-      };
+      const evt = this.evaluatePhaseEvent(phaseId, idx, targetFrame);
       phases[phaseId] = evt;
       orderedEvents.push(evt);
     }
@@ -1054,5 +1050,85 @@ export class GolfSwingPhaseEngine {
     }
 
     return bestIdx;
+  }
+
+  /**
+   * Evaluates phase event quality, assigns Honest AI status (DETECTED_EXACT vs DETECTED_PROXY),
+   * enforces pose-only confidence caps, and populates disclosure warnings.
+   */
+  private evaluatePhaseEvent(
+    phaseId: SwingPhaseId,
+    frameIndex: number,
+    targetFrame: PoseFrame
+  ): SwingPhaseEvent {
+    const isProxy = phaseId === 'P2_TAKEAWAY' || phaseId === 'P6_DELIVERY' || phaseId === 'P7_IMPACT' || phaseId === 'P8_RELEASE';
+    const status: EventDetectionStatus = isProxy ? 'DETECTED_PROXY' : 'DETECTED_EXACT';
+    const warnings = PROXY_PHASE_WARNINGS[phaseId] ? [...PROXY_PHASE_WARNINGS[phaseId]!] : [];
+
+    // Relevant landmark evaluation for quality scoring
+    const relevantLandmarks = this.getRequiredLandmarkIds(phaseId);
+    let visProduct = 1.0;
+    let count = 0;
+
+    for (const lid of relevantLandmarks) {
+      const lm = getLandmark(targetFrame, lid);
+      const vis = lm ? (lm.visibility ?? 1.0) : 0.20;
+      visProduct *= Math.max(0.05, Math.min(1.0, vis));
+      count++;
+    }
+
+    const qLandmarks = count > 0 ? Math.pow(visProduct, 1.0 / count) : 0.80;
+    const modeCap = POSE_ONLY_MODE_CAPS[phaseId] ?? 0.90;
+    const confidence = Number(Math.min(qLandmarks, modeCap).toFixed(3));
+
+    return {
+      phaseId,
+      frameIndex,
+      timestampMs: targetFrame.timestampMs,
+      confidence,
+      status,
+      warnings
+    };
+  }
+
+  /**
+   * Returns key landmark IDs needed to substantiate a given swing phase.
+   */
+  private getRequiredLandmarkIds(phaseId: SwingPhaseId): LandmarkId[] {
+    const leadSide = this.isRightHanded ? 'LEFT' : 'RIGHT';
+    const trailSide = this.isRightHanded ? 'RIGHT' : 'LEFT';
+
+    const leadShoulder = leadSide === 'LEFT' ? LandmarkId.LEFT_SHOULDER : LandmarkId.RIGHT_SHOULDER;
+    const leadElbow = leadSide === 'LEFT' ? LandmarkId.LEFT_ELBOW : LandmarkId.RIGHT_ELBOW;
+    const leadWrist = leadSide === 'LEFT' ? LandmarkId.LEFT_WRIST : LandmarkId.RIGHT_WRIST;
+    const leadHip = leadSide === 'LEFT' ? LandmarkId.LEFT_HIP : LandmarkId.RIGHT_HIP;
+
+    const trailShoulder = trailSide === 'RIGHT' ? LandmarkId.RIGHT_SHOULDER : LandmarkId.LEFT_SHOULDER;
+    const trailElbow = trailSide === 'RIGHT' ? LandmarkId.RIGHT_ELBOW : LandmarkId.LEFT_ELBOW;
+    const trailWrist = trailSide === 'RIGHT' ? LandmarkId.RIGHT_WRIST : LandmarkId.LEFT_WRIST;
+    const trailHip = trailSide === 'RIGHT' ? LandmarkId.RIGHT_HIP : LandmarkId.LEFT_HIP;
+
+    switch (phaseId) {
+      case 'P1_ADDRESS':
+        return [LandmarkId.LEFT_SHOULDER, LandmarkId.RIGHT_SHOULDER, LandmarkId.LEFT_WRIST, LandmarkId.RIGHT_WRIST, LandmarkId.LEFT_HIP, LandmarkId.RIGHT_HIP];
+      case 'P2_TAKEAWAY':
+        return [LandmarkId.LEFT_WRIST, LandmarkId.RIGHT_WRIST, trailHip];
+      case 'P3_HALFWAY_BACK':
+        return [leadShoulder, leadElbow, leadWrist];
+      case 'P4_TOP':
+        return [LandmarkId.LEFT_SHOULDER, LandmarkId.RIGHT_SHOULDER, LandmarkId.LEFT_WRIST, LandmarkId.RIGHT_WRIST, LandmarkId.LEFT_HIP, LandmarkId.RIGHT_HIP];
+      case 'P5_SHALLOW':
+        return [leadShoulder, leadElbow, leadWrist];
+      case 'P6_DELIVERY':
+        return [LandmarkId.LEFT_WRIST, LandmarkId.RIGHT_WRIST, trailHip];
+      case 'P7_IMPACT':
+        return [LandmarkId.LEFT_WRIST, LandmarkId.RIGHT_WRIST, LandmarkId.LEFT_HIP, LandmarkId.RIGHT_HIP];
+      case 'P8_RELEASE':
+        return [LandmarkId.LEFT_WRIST, LandmarkId.RIGHT_WRIST, leadHip];
+      case 'P9_REHINGE':
+        return [trailShoulder, trailElbow, trailWrist];
+      case 'P10_FINISH':
+        return [LandmarkId.LEFT_SHOULDER, LandmarkId.RIGHT_SHOULDER, LandmarkId.LEFT_WRIST, LandmarkId.RIGHT_WRIST, LandmarkId.LEFT_HIP, LandmarkId.RIGHT_HIP];
+    }
   }
 }

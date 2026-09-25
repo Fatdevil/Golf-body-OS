@@ -3,7 +3,7 @@ import { Upload, Activity, AlertTriangle, Compass, Target, Film, Clock, Zap, Ref
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
 
 import { CameraViewAngle, GolfSwingAnalysisResult, ORDERED_SWING_PHASES, SWING_PHASE_INFO, SwingKinematics, BodySwingCorrelation, SwingPhaseId } from '../../../../src/core/types/golf-swing';
-import { GolfSwingPhaseEngine } from '../../../../src/core/motion/phases/golf-swing-phase-engine';
+import { GolfSwingPhaseEngine, NoSwingDetectedError } from '../../../../src/core/motion/phases/golf-swing-phase-engine';
 import { BodySwingCorrelator } from '../../../../src/core/correlation/body-swing-correlator';
 import { PoseFrame } from '../../../../src/core/types/pose-frame';
 import { Landmark, LandmarkId } from '../../../../src/core/types/landmark';
@@ -38,6 +38,7 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
   const [enableSmoothing, setEnableSmoothing] = useState<boolean>(true);
   const [activeFrame, setActiveFrame] = useState<PoseFrame | null>(null);
   const [analysisResult, setAnalysisResult] = useState<GolfSwingAnalysisResult | null>(null);
+  const [detectionError, setDetectionError] = useState<string | null>(null);
   const [qualityResult, setQualityResult] = useState<QualityCheckResult | null>(null);
   const [correlations, setCorrelations] = useState<BodySwingCorrelation[]>([]);
   const [viewAngle, setViewAngle] = useState<CameraViewAngle>('FACE_ON');
@@ -88,7 +89,7 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
       setIsModelLoading(true);
       try {
         const vision = await FilesetResolver.forVisionTasks(
-          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm'
         );
         const landmarker = await PoseLandmarker.createFromOptions(vision, {
           baseOptions: {
@@ -128,6 +129,7 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
     setAnalysisProgress(0);
     setFrames([]);
     setAnalysisResult(null);
+    setDetectionError(null);
     setCorrelations([]);
 
     const scanVideo = document.createElement('video');
@@ -304,9 +306,11 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
   useEffect(() => {
     if (activeSequence.length === 0) {
       setQualityResult(null);
+      setDetectionError(null);
       return;
     }
     try {
+      setDetectionError(null);
       // 1. Run Pre-flight Video Quality Gate
       const quality = evaluateVideoQuality(activeSequence, videoMeta ? {
         durationSec: videoMeta.durationSec,
@@ -330,14 +334,26 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
       });
       const analysis = engine.analyzeSequence(activeSequence);
       setAnalysisResult(analysis);
+      setDetectionError(null);
 
       // CORRELATE: Knyt ihop Swing Faults med Body Screening
       const detectedCorrelations = BodySwingCorrelator.correlate(currentBodyScore, analysis);
       setCorrelations(detectedCorrelations);
-    } catch (err) {
+    } catch (err: any) {
       console.warn("Could not analyze phases:", err);
+      setAnalysisResult(null);
+      setCorrelations([]);
+      if (err instanceof NoSwingDetectedError || err?.code === 'NO_SWING_DETECTED') {
+        setDetectionError(
+          isSv
+            ? 'Ingen fullständig golfsving kunde identifieras i videon. Kontrollera att hela rörelsen (adress till finish) och hela kroppen är synliga.'
+            : 'No complete golf swing could be detected in the video. Ensure the full motion (address to finish) and whole body are clearly visible.'
+        );
+      } else {
+        setDetectionError(err?.message || (isSv ? 'Ett fel uppstod vid svinganalysen.' : 'An error occurred during swing analysis.'));
+      }
     }
-  }, [activeSequence, viewAngle, handednessMode, currentBodyScore, language, passedSlowMoFactor, videoMeta]);
+  }, [activeSequence, viewAngle, handednessMode, currentBodyScore, language, passedSlowMoFactor, videoMeta, isSv]);
 
   // 3. Ritfunktion för skelettet (Bilateral färgkodning & konfidens-opacitet)
   const drawSkeleton = (ctx: CanvasRenderingContext2D, frame: PoseFrame, width: number, height: number) => {
@@ -678,6 +694,23 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
         </div>
       )}
 
+      {/* Detection Error Banner */}
+      {detectionError && (
+        <div className="px-4 py-3 rounded-2xl border border-rose-500/50 bg-rose-950/40 text-rose-200 text-xs shadow-md transition-all">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle size={18} className="text-rose-400 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold text-sm text-rose-300">
+                {isSv ? 'Sving kunde inte detekteras' : 'Swing could not be detected'}
+              </div>
+              <p className="mt-0.5 text-rose-200/90 leading-relaxed text-[11px]">
+                {detectionError}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Workspace Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         
@@ -734,12 +767,19 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
                       className={`flex flex-col items-center justify-center p-1.5 rounded-xl border text-center transition ${
                         isCurrent
                           ? 'bg-blue-600 border-blue-400 text-white shadow-lg ring-2 ring-blue-400/60 scale-105 z-10 cursor-pointer'
+                          : phaseEvent?.status === 'DETECTED_PROXY'
+                          ? 'bg-amber-950/40 border-amber-500/40 hover:bg-amber-800/60 text-amber-300 cursor-pointer'
                           : phaseEvent
                           ? 'bg-emerald-950/40 border-emerald-500/40 hover:bg-emerald-800/60 text-emerald-300 cursor-pointer'
                           : 'bg-slate-950 border-slate-800 text-slate-600 opacity-50'
                       }`}
                     >
-                      <span className="font-black text-xs font-mono">{info.id}</span>
+                      <div className="flex items-center gap-0.5">
+                        <span className="font-black text-xs font-mono">{info.id}</span>
+                        {phaseEvent?.status === 'DETECTED_PROXY' && (
+                          <span className="text-[9px] text-amber-400" title={isSv ? 'Rörelseproxy (utan klubbsignal)' : 'Motion proxy (no club signal)'}>⚡</span>
+                        )}
+                      </div>
                       <span className="text-[8px] font-semibold truncate w-full mt-0.5">{info.name[langKey]}</span>
                       {phaseEvent && (
                         <span className="text-[8px] font-mono text-cyan-300 font-bold mt-0.5">{timeSec.toFixed(2)}s</span>
@@ -761,9 +801,19 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
                 <h3 className="text-sm font-bold">{isSv ? 'Biomekanik i Realtid' : 'Live Kinematics'}</h3>
               </div>
               {currentKinematics && (
-                <span className="text-[10px] font-mono font-black px-2.5 py-0.5 rounded-full bg-blue-900/60 text-blue-300 border border-blue-500/40 shadow-sm">
-                  {currentKinematics.phaseId}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {analysisResult?.phases[currentKinematics.phaseId]?.status === 'DETECTED_PROXY' && (
+                    <span 
+                      className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-900/60 text-amber-300 border border-amber-500/40 cursor-help"
+                      title={isSv ? 'Rörelseproxy: MediaPipe mäter kroppsrörelse, ej klubba/boll' : 'Motion proxy: MediaPipe tracks body motion, not club/ball'}
+                    >
+                      ⚡ PROXY
+                    </span>
+                  )}
+                  <span className="text-[10px] font-mono font-black px-2.5 py-0.5 rounded-full bg-blue-900/60 text-blue-300 border border-blue-500/40 shadow-sm">
+                    {currentKinematics.phaseId}
+                  </span>
+                </div>
               )}
             </div>
 

@@ -122,11 +122,48 @@ export const SWING_PHASE_INFO: Record<SwingPhaseId, PhaseInfo> = {
   }
 };
 
+/**
+ * Event detection status declaring whether a phase was measured directly
+ * from body landmarks (DETECTED_EXACT), approximated via body proxy (DETECTED_PROXY),
+ * or abstained due to insufficient or contradictory signal (ABSTAIN).
+ */
+export type EventDetectionStatus = 'DETECTED_EXACT' | 'DETECTED_PROXY' | 'ABSTAIN';
+
+/**
+ * Maximum confidence caps for pose-only analysis (without club/ball tracking).
+ * Aligned with SwingSwang MediaPipe P1–P10 Normative Specification v1.0.
+ */
+export const POSE_ONLY_MODE_CAPS: Record<SwingPhaseId, number> = {
+  P1_ADDRESS: 0.90,
+  P2_TAKEAWAY: 0.55,
+  P3_HALFWAY_BACK: 0.85,
+  P4_TOP: 0.85,
+  P5_SHALLOW: 0.85,
+  P6_DELIVERY: 0.55,
+  P7_IMPACT: 0.50,
+  P8_RELEASE: 0.55,
+  P9_REHINGE: 0.80,
+  P10_FINISH: 0.90,
+};
+
+/**
+ * Mandatory disclosure warnings for proxy positions when analyzed without club/ball tracking.
+ */
+export const PROXY_PHASE_WARNINGS: Partial<Record<SwingPhaseId, string[]>> = {
+  P2_TAKEAWAY: ['NO_CLUB_SIGNAL'],
+  P6_DELIVERY: ['NO_CLUB_SIGNAL'],
+  P7_IMPACT: ['NO_CLUB_SIGNAL', 'NO_BALL_CONTACT_SIGNAL'],
+  P8_RELEASE: ['NO_CLUB_SIGNAL'],
+};
+
 export interface SwingPhaseEvent {
   phaseId: SwingPhaseId;
   frameIndex: number;
   timestampMs: number;
   confidence: number;
+  status?: EventDetectionStatus;
+  warnings?: string[];
+  reasonCode?: string;
 }
 
 export interface SwingKinematics {
