@@ -90,11 +90,16 @@ public class GolfBodyPoseModule: Module {
 
   // MARK: - Private: Initialization
 
+  /// The podspec ships the model via `s.resources`: it lands in the main app
+  /// bundle for static pods (Expo default) but inside the module's framework
+  /// bundle when pods are built as frameworks (`use_frameworks!`).
+  private func findModelPath() -> String? {
+    return Bundle.main.path(forResource: "pose_landmarker_full", ofType: "task")
+      ?? Bundle(for: GolfBodyPoseModule.self).path(forResource: "pose_landmarker_full", ofType: "task")
+  }
+
   private func initializeLandmarker() throws {
-    guard let modelPath = Bundle.main.path(
-      forResource: "pose_landmarker_full",
-      ofType: "task"
-    ) else {
+    guard let modelPath = self.findModelPath() else {
       throw GolfBodyPoseError.modelNotFound
     }
 
@@ -117,10 +122,7 @@ public class GolfBodyPoseModule: Module {
   }
 
   private func initializeVideoModeLandmarker() throws {
-    guard let modelPath = Bundle.main.path(
-      forResource: "pose_landmarker_full",
-      ofType: "task"
-    ) else {
+    guard let modelPath = self.findModelPath() else {
       throw GolfBodyPoseError.modelNotFound
     }
 
@@ -185,6 +187,9 @@ public class GolfBodyPoseModule: Module {
 
   // MARK: - Private: Pixel Buffer Creation
 
+  /// Builds a 32BGRA pixel buffer (a format MPImage accepts) from tightly
+  /// packed RGB input, copying row by row: CoreVideo pads rows, so a single
+  /// contiguous copy would shear the image whenever bytesPerRow > width * 4.
   private func createPixelBuffer(from data: Data, width: Int, height: Int) throws -> CVPixelBuffer {
     let expectedBytes = width * height * 3
     guard data.count == expectedBytes else {
@@ -201,7 +206,7 @@ public class GolfBodyPoseModule: Module {
       kCFAllocatorDefault,
       width,
       height,
-      kCVPixelFormatType_24RGB,
+      kCVPixelFormatType_32BGRA,
       attrs as CFDictionary,
       &pixelBuffer
     )
@@ -217,9 +222,23 @@ public class GolfBodyPoseModule: Module {
       throw GolfBodyPoseError.imageConversionFailed
     }
 
-    let bufferSize = CVPixelBufferGetDataSize(buffer)
-    let bytesToCopy = min(data.count, bufferSize)
-    data.copyBytes(to: baseAddress.assumingMemoryBound(to: UInt8.self), count: bytesToCopy)
+    let dstBytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+    let dst = baseAddress.assumingMemoryBound(to: UInt8.self)
+    data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+      guard let src = raw.bindMemory(to: UInt8.self).baseAddress else { return }
+      for y in 0..<height {
+        let srcRow = src + y * width * 3
+        let dstRow = dst + y * dstBytesPerRow
+        for x in 0..<width {
+          let s = srcRow + x * 3
+          let d = dstRow + x * 4
+          d[0] = s[2] // B
+          d[1] = s[1] // G
+          d[2] = s[0] // R
+          d[3] = 255  // A
+        }
+      }
+    }
 
     return buffer
   }

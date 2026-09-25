@@ -49,6 +49,14 @@ export type NativeInitStatus = 'UNINITIALIZED' | 'INITIALIZING' | 'READY' | 'ERR
 const GolfBodyPose = requireNativeModule('GolfBodyPose');
 
 /**
+ * Expo Modules convert Swift `Data` / Kotlin `ByteArray` only from a JS
+ * Uint8Array (a plain ArrayBuffer is rejected), so always pass one.
+ */
+function toUint8Array(imageData: ArrayBuffer | Uint8Array): Uint8Array {
+  return imageData instanceof Uint8Array ? imageData : new Uint8Array(imageData);
+}
+
+/**
  * Initialize the MediaPipe PoseLandmarker with the bundled Full model.
  * Must be called before any detection methods.
  * @throws If the model file is missing or MediaPipe initialization fails.
@@ -61,19 +69,19 @@ export async function initialize(): Promise<void> {
  * Process a single image frame (IMAGE mode).
  * Used for individual frame analysis in Measurement Lab.
  *
- * @param imageData - Raw pixel data (RGB format)
+ * @param imageData - Tightly packed 8-bit RGB (width * height * 3 bytes)
  * @param width - Frame width in pixels
  * @param height - Frame height in pixels
  * @param timestampMs - Frame timestamp in milliseconds
  * @returns Landmark detection result
  */
 export async function detectImage(
-  imageData: ArrayBuffer,
+  imageData: ArrayBuffer | Uint8Array,
   width: number,
   height: number,
   timestampMs: number,
 ): Promise<NativeLandmarkResult> {
-  return GolfBodyPose.detectImage(imageData, width, height, timestampMs);
+  return GolfBodyPose.detectImage(toUint8Array(imageData), width, height, timestampMs);
 }
 
 /**
@@ -81,19 +89,19 @@ export async function detectImage(
  * Uses MediaPipe's temporal tracking for better consistency.
  * Timestamps MUST be monotonically increasing.
  *
- * @param imageData - Raw pixel data (RGB format)
+ * @param imageData - Tightly packed 8-bit RGB (width * height * 3 bytes)
  * @param width - Frame width in pixels
  * @param height - Frame height in pixels
  * @param timestampMs - Frame timestamp (must increase with each call)
  * @returns Landmark detection result
  */
 export async function detectVideoFrame(
-  imageData: ArrayBuffer,
+  imageData: ArrayBuffer | Uint8Array,
   width: number,
   height: number,
   timestampMs: number,
 ): Promise<NativeLandmarkResult> {
-  return GolfBodyPose.detectVideoFrame(imageData, width, height, timestampMs);
+  return GolfBodyPose.detectVideoFrame(toUint8Array(imageData), width, height, timestampMs);
 }
 
 /**

@@ -30,14 +30,7 @@
       "predictiveBackGestureEnabled": false
     },
     "plugins": [
-      "expo-asset",
-      [
-        "react-native-vision-camera",
-        {
-          "cameraPermissionText": "Golf Body OS uses the camera to analyze your movement during body tests.",
-          "enableMicrophonePermission": false
-        }
-      ]
+      "expo-asset"
     ]
   }
 }

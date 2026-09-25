@@ -11,7 +11,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
-import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
+import { Camera, useCameraDevice, useCameraPermission, useFrameOutput } from 'react-native-vision-camera';
+import { scheduleOnRN } from 'react-native-worklets';
 import { useScreening } from '../../context/ScreeningContext';
 import { StoredScreeningSession } from '../../storage/screening-repository';
 import { AudioCoachService } from '../../core/coaching/audio-coach';
@@ -22,6 +23,14 @@ import { CoachingPhraseKey } from '../../core/coaching/i18n/locales';
 import * as GolfBodyPose from '../../../modules/golf-body-pose';
 import { LiveScreeningSession } from '../../core/analysis/live-screening-session';
 import { PoseFrame } from '../../core/types/pose-frame';
+import { LandmarkId } from '../../core/types/landmark';
+import { convertFrameToPackedRgb, isSupportedRgbPixelFormat } from '../../core/capture/frame-rgb-converter';
+import { LivePoseProcessor } from '../../core/capture/live-pose-processor';
+import { toIsotropicLandmarks } from '../../core/coordinates/isotropic';
+import { interiorAngle } from '../../core/metrics/angle-calculator';
+
+/** Long side (px) of the upright RGB image sent to MediaPipe. */
+const POSE_INPUT_MAX_SIDE = 480;
 
 export default function ActiveScreeningScreen() {
   const { activeTestType, language, cancelScreening, finishScreening } = useScreening();
@@ -312,23 +321,84 @@ export default function ActiveScreeningScreen() {
   /**
    * Entry point for live pose frames (native MediaPipe result converted with
    * convertNativeResultToPoseFrame, image-space landmarks). Routes the frame to
-   * the active test.
-   *
-   * NOTE: not yet called — the camera frame source is missing. VisionCamera v5
-   * delivers frames via useFrameOutput(), which needs
-   * react-native-vision-camera-worklets + react-native-worklets (not installed),
-   * and the frame must reach GolfBodyPose.detectVideoFrame. Until then only the
-   * demo simulation completes a test, and its results are stored as demo.
+   * the active test and updates the on-screen readout.
    */
   const handlePoseFrame = useCallback((frame: PoseFrame) => {
     const stage = currentStageRef.current;
     if (stage === 'HINGE') {
       liveSessionRef.current.addHingeFrame(frame);
       liveHingeEngineRef.current?.processFrame(frame);
+      const lms = toIsotropicLandmarks(frame.landmarks, frame.width, frame.height);
+      const get = (id: LandmarkId) => lms.find((l) => l.id === id);
+      const sh = get(LandmarkId.LEFT_SHOULDER), hip = get(LandmarkId.LEFT_HIP);
+      const kn = get(LandmarkId.LEFT_KNEE), an = get(LandmarkId.LEFT_ANKLE);
+      if (sh && hip && kn) setCurrentAngle(Math.round(interiorAngle(sh, hip, kn)));
+      if (hip && kn && an) setKneeAngle(Math.round(interiorAngle(hip, kn, an)));
     } else if (stage === 'ROTATION') {
       liveRotationEngineRef.current?.processFrame(frame);
+      const samples = liveRotationEngineRef.current?.getSamples() ?? [];
+      const last = samples[samples.length - 1];
+      if (last) setCurrentAngle(Math.round(last.isolatedThoracic));
     }
   }, []);
+
+  // Camera → MediaPipe → handlePoseFrame
+  const poseProcessorRef = useRef<LivePoseProcessor | null>(null);
+  useEffect(() => {
+    if (!nativePoseReady) return;
+    let modelInfo: GolfBodyPose.NativeModelInfo;
+    try {
+      modelInfo = GolfBodyPose.getModelInfo();
+    } catch (err) {
+      console.warn('[ActiveScreening] Could not read pose model info:', err);
+      return;
+    }
+    GolfBodyPose.resetVideoMode().catch(() => {});
+    poseProcessorRef.current = new LivePoseProcessor({
+      detect: GolfBodyPose.detectVideoFrame,
+      modelInfo,
+      onPoseFrame: handlePoseFrame,
+      onError: (err) => console.warn('[ActiveScreening] Pose detection failed:', err),
+      // Logged once so orientation / mirroring can be verified on a device.
+      onFirstFrameInfo: (info) => console.log('[ActiveScreening] Camera frames:', info),
+    });
+    return () => {
+      poseProcessorRef.current = null;
+    };
+  }, [nativePoseReady, handlePoseFrame]);
+
+  const onRgbImage = useCallback((
+    data: ArrayBuffer, width: number, height: number, rawTimestamp: number,
+    pixelFormat: string, orientation: string, isMirrored: boolean, sourceWidth: number, sourceHeight: number,
+  ) => {
+    poseProcessorRef.current?.process(data, width, height, rawTimestamp, {
+      pixelFormat, orientation, isMirrored, sourceWidth, sourceHeight,
+    });
+  }, []);
+
+  const frameOutput = useFrameOutput({
+    pixelFormat: 'rgb',
+    targetResolution: { width: 960, height: 720 },
+    enablePreviewSizedOutputBuffers: true,
+    dropFramesWhileBusy: true,
+    onFrame(frame) {
+      'worklet';
+      try {
+        if (frame.isValid && frame.hasPixelBuffer && isSupportedRgbPixelFormat(frame.pixelFormat)) {
+          const img = convertFrameToPackedRgb(
+            frame.getPixelBuffer(), frame.width, frame.height, frame.bytesPerRow,
+            frame.pixelFormat, frame.orientation, frame.isMirrored, POSE_INPUT_MAX_SIDE,
+          );
+          scheduleOnRN(
+            onRgbImage, img.data, img.width, img.height, frame.timestamp,
+            frame.pixelFormat, frame.orientation, frame.isMirrored, frame.width, frame.height,
+          );
+        }
+      } finally {
+        frame.dispose();
+      }
+    },
+  });
 
   // Automated Simulation Runner for testing and demo
   const runSimulation = () => {
@@ -419,6 +489,7 @@ export default function ActiveScreeningScreen() {
           <Camera
             style={StyleSheet.absoluteFill}
             device={device}
+            outputs={[frameOutput]}
             isActive={true}
           />
         )}
@@ -473,15 +544,17 @@ export default function ActiveScreeningScreen() {
                 <Text style={styles.statusBadgeText}>
                   {isSimulating
                     ? '⚡ SIMULERING (DEMO)'
-                    : `📷 KAMERA (${cameraPosition === 'front' ? 'SELFIE' : 'BAKRE'}) – FÖRHANDSVISNING`}
+                    : nativePoseReady
+                      ? `🟢 LIVE KAMERA (${cameraPosition === 'front' ? 'SELFIE' : 'BAKRE'})`
+                      : `📷 KAMERA (${cameraPosition === 'front' ? 'SELFIE' : 'BAKRE'}) – POSE-MOTOR EJ REDO`}
                 </Text>
               </View>
             </View>
-            {!isSimulating && (
+            {!isSimulating && !nativePoseReady && (
               <Text style={styles.metricSub}>
                 {language === 'sv-SE'
-                  ? 'Livemätning från kameran är inte aktiverad i den här versionen än. Kör demon för att se flödet – demoresultat sparas som demo, inte som din mätning.'
-                  : 'Live camera measurement is not enabled in this version yet. Run the demo to see the flow – demo results are saved as demo, not as your measurement.'}
+                  ? 'Pose-motorn (MediaPipe) kunde inte startas, så ingen mätning görs. Kör demon för att se flödet – demoresultat sparas som demo.'
+                  : 'The pose engine (MediaPipe) could not start, so nothing is measured. Run the demo to see the flow – demo results are saved as demo.'}
               </Text>
             )}
 
