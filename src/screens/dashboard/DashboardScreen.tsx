@@ -17,7 +17,9 @@ export default function DashboardScreen() {
 
   const hasSession = latestSession !== null;
   const score = hasSession ? latestSession.golfBodyScore : null;
-  const tierLabel = hasSession ? latestSession.tierLabel : 'Ej testad';
+  // A demo run is not the user's measurement — say so wherever its score is shown.
+  const isDemo = hasSession && latestSession.isSimulated === true;
+  const tierLabel = hasSession ? (isDemo ? `${latestSession.tierLabel} · DEMO` : latestSession.tierLabel) : 'Ej testad';
   const tierColor = hasSession ? latestSession.tierColor : '#71717A';
 
   const hipScore = hasSession ? latestSession.subScores.hipHinge : 0;

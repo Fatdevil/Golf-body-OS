@@ -20,6 +20,8 @@ import { LiveRotationCoachingEngine } from '../../core/coaching/live-rotation-co
 import { calculateGolfBodyScore, getTierDetailsForScore } from '../../core/metrics/golf-body-score';
 import { CoachingPhraseKey } from '../../core/coaching/i18n/locales';
 import * as GolfBodyPose from '../../../modules/golf-body-pose';
+import { LiveScreeningSession } from '../../core/analysis/live-screening-session';
+import { PoseFrame } from '../../core/types/pose-frame';
 
 export default function ActiveScreeningScreen() {
   const { activeTestType, language, cancelScreening, finishScreening } = useScreening();
@@ -62,6 +64,15 @@ export default function ActiveScreeningScreen() {
   const liveHingeEngineRef = useRef<LiveCoachingEngine | null>(null);
   const liveRotationEngineRef = useRef<LiveRotationCoachingEngine | null>(null);
 
+  // Measurement from live pose frames (hinge via TemporalPipeline, rotation via samples)
+  const liveSessionRef = useRef(new LiveScreeningSession());
+  // True once a demo simulation has run in this screening. Read through a ref:
+  // finalizeOverallResult is reached via memoized callbacks, which captured the
+  // first render's `isSimulating` (false) and saved every demo as a real result.
+  const simulatedRunRef = useRef<boolean>(false);
+  const currentStageRef = useRef<typeof currentStage>(currentStage);
+  currentStageRef.current = currentStage;
+
   // Interval tracking for proper cleanup
   const simulationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isRunningRef = useRef<boolean>(false);
@@ -76,6 +87,16 @@ export default function ActiveScreeningScreen() {
         setRepCount(rep);
       },
       onAllRepsComplete: () => {
+        // Live frames: take the hinge measurement from the full pipeline.
+        // (Simulation writes hingeMetricsRef itself and never feeds frames.)
+        const measured = liveSessionRef.current.finalizeHinge();
+        if (measured) {
+          hingeMetricsRef.current = {
+            hingeAngle: measured.hingeAngle,
+            kneeAngle: measured.kneeAngle,
+            compensations: measured.compensations,
+          };
+        }
         handleHingeComplete();
       },
       onCueSpoken: (key: CoachingPhraseKey) => {
@@ -85,6 +106,12 @@ export default function ActiveScreeningScreen() {
 
     liveRotationEngineRef.current = new LiveRotationCoachingEngine(coach, {
       onComplete: () => {
+        const measured = LiveScreeningSession.summarizeRotation(
+          liveRotationEngineRef.current?.getSamples() ?? []
+        );
+        if (measured) {
+          rotationMetricsRef.current = { ...measured };
+        }
         handleRotationComplete();
       },
       onCueSpoken: (key: CoachingPhraseKey) => {
@@ -276,17 +303,39 @@ export default function ActiveScreeningScreen() {
       primaryBottlenecks: bodyScore.primaryBottlenecks,
       predictedSwingFaults: predictedFaults,
       prescribedExercises,
-      isSimulated: isSimulating,
+      isSimulated: simulatedRunRef.current,
     };
 
     finishScreening(session);
   };
+
+  /**
+   * Entry point for live pose frames (native MediaPipe result converted with
+   * convertNativeResultToPoseFrame, image-space landmarks). Routes the frame to
+   * the active test.
+   *
+   * NOTE: not yet called — the camera frame source is missing. VisionCamera v5
+   * delivers frames via useFrameOutput(), which needs
+   * react-native-vision-camera-worklets + react-native-worklets (not installed),
+   * and the frame must reach GolfBodyPose.detectVideoFrame. Until then only the
+   * demo simulation completes a test, and its results are stored as demo.
+   */
+  const handlePoseFrame = useCallback((frame: PoseFrame) => {
+    const stage = currentStageRef.current;
+    if (stage === 'HINGE') {
+      liveSessionRef.current.addHingeFrame(frame);
+      liveHingeEngineRef.current?.processFrame(frame);
+    } else if (stage === 'ROTATION') {
+      liveRotationEngineRef.current?.processFrame(frame);
+    }
+  }, []);
 
   // Automated Simulation Runner for testing and demo
   const runSimulation = () => {
     // Guard against multiple concurrent simulations (ref-based, synchronous)
     if (isRunningRef.current) return;
     isRunningRef.current = true;
+    simulatedRunRef.current = true;
     setIsSimulating(true);
     let step = 0;
 
@@ -424,10 +473,17 @@ export default function ActiveScreeningScreen() {
                 <Text style={styles.statusBadgeText}>
                   {isSimulating
                     ? '⚡ SIMULERING (DEMO)'
-                    : `🟢 LIVE KAMERA (${cameraPosition === 'front' ? 'SELFIE' : 'BAKRE'})`}
+                    : `📷 KAMERA (${cameraPosition === 'front' ? 'SELFIE' : 'BAKRE'}) – FÖRHANDSVISNING`}
                 </Text>
               </View>
             </View>
+            {!isSimulating && (
+              <Text style={styles.metricSub}>
+                {language === 'sv-SE'
+                  ? 'Livemätning från kameran är inte aktiverad i den här versionen än. Kör demon för att se flödet – demoresultat sparas som demo, inte som din mätning.'
+                  : 'Live camera measurement is not enabled in this version yet. Run the demo to see the flow – demo results are saved as demo, not as your measurement.'}
+              </Text>
+            )}
 
             {/* Live Angle & Rep Readout */}
             <View style={styles.metricBubble}>
