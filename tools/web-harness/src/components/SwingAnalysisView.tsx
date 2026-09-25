@@ -10,6 +10,7 @@ import { Landmark, LandmarkId } from '../../../../src/core/types/landmark';
 import { extractPhaseKinematics } from '../../../../src/core/metrics/golf-swing-metrics';
 import { sanitizeGolfPoseFrame } from '../../../../src/core/motion/filters/anatomical-filter';
 import { Mp4Inspector, VideoMetadata } from '../../../../src/core/video/mp4-inspector';
+import { createVideoModeClock } from '../../../../src/core/pose/video-mode-clock';
 import { evaluateVideoQuality, QualityCheckResult } from '../../../../src/core/quality';
 import { smoothPoseSequence } from '../../../../src/core/motion/filters/pose-smoother';
 import {
@@ -74,6 +75,7 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const poseLandmarkerRef = useRef<PoseLandmarker | null>(null);
+  const videoClockRef = useRef<(mediaTimestampMs: number) => number>(createVideoModeClock());
   const requestRef = useRef<number | null>(null);
 
   const isSv = language === 'sv-SE';
@@ -100,6 +102,9 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
         });
         if (isMounted) {
           poseLandmarkerRef.current = landmarker;
+          // One clock per landmarker: the dense pass and later videos re-scan
+          // earlier media times, which VIDEO mode would otherwise reject.
+          videoClockRef.current = createVideoModeClock();
           setIsModelLoading(false);
         }
       } catch (err) {
@@ -153,7 +158,7 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
       });
 
       try {
-        const result = poseLandmarkerRef.current!.detectForVideo(scanVideo, timeSec * 1000);
+        const result = poseLandmarkerRef.current!.detectForVideo(scanVideo, videoClockRef.current(timeSec * 1000));
         if (result.landmarks && result.landmarks[0]) {
           const lms: Landmark[] = result.landmarks[0].map((lm, idx) => ({
             id: idx as LandmarkId,
