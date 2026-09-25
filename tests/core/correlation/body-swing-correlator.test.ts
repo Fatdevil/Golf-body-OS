@@ -92,4 +92,38 @@ describe('BodySwingCorrelator', () => {
       correlator.correlate(bodyWithoutThoracic, swingResult);
     }).not.toThrow();
   });
+
+  it('frames every correlation as a possible contributing factor, never as a cause', () => {
+    const engine = new GolfSwingPhaseEngine();
+    const swingResult = engine.analyzeSequence(generate240FpsSwingSequence(480));
+    const fault = (id: string, phase: any) => ({
+      id, name: { 'sv-SE': id, 'en-US': id }, severity: 'HIGH' as const, phaseDetected: phase,
+      metricValue: 20, threshold: 10, unit: '°',
+      description: { 'sv-SE': id, 'en-US': id }, relatedBodyLimitation: { 'sv-SE': id, 'en-US': id },
+    });
+    swingResult.faults.push(
+      fault('EARLY_EXTENSION', 'P7_IMPACT') as any,
+      fault('OVER_ROTATION_PELVIS', 'P4_TOP') as any,
+      fault('REVERSE_SPINE', 'P4_TOP') as any,
+      fault('SWAY_BACKSWING', 'P4_TOP') as any,
+    );
+    const body: any = {
+      totalScore: 40,
+      hipHinge: { total: 20, score: 20 },
+      thoracicRotation: { total: 20, score: 20, maxLeft: 20, maxRight: 35, asymmetry: 15 },
+    };
+
+    const correlations = correlator.correlate(body, swingResult);
+    expect(correlations).toHaveLength(4);
+
+    const causal = /\b(causes?|caused|forces?|explains?|because)\b|orsakar|tvingar|tvingas|förklarar|eftersom|skapar/i;
+    for (const c of correlations) {
+      for (const lang of ['sv-SE', 'en-US'] as const) {
+        expect(c.title[lang]).not.toMatch(causal);
+        expect(c.explanation[lang]).not.toMatch(causal);
+      }
+      expect(c.title['sv-SE']).toContain('kan bidra');
+      expect(c.title['en-US']).toContain('may contribute');
+    }
+  });
 });
