@@ -15,6 +15,7 @@ import { OutlierRejector } from './filters/outlier-rejector';
 import { PhaseEngine } from './phases/phase-engine';
 import { EndpointDetector } from './phases/endpoint-detector';
 import { interiorAngle } from '../metrics/angle-calculator';
+import { toIsotropicFrame } from '../coordinates/isotropic';
 
 export const VERSION = 'TEMPORAL_PIPELINE_V1';
 
@@ -102,7 +103,9 @@ export class TemporalPipeline {
 
     const endpointBuffer = new Map<number, import('../types/landmark').Landmark[]>();
 
-    for (const frame of frames) {
+    for (const rawFrame of frames) {
+      // Angles are only valid when x and y share a scale (non-square video).
+      const frame = toIsotropicFrame(rawFrame);
       // Before ACTIVE state, we just pass the frame through the smoother to keep it warm, 
       // but we do NOT run phase detection or metric extraction.
       if (this.config.activeStartTimeMs !== undefined && frame.timestampMs < this.config.activeStartTimeMs) {

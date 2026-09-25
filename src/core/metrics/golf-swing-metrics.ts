@@ -19,6 +19,7 @@ import {
   SwingTempo
 } from '../types/golf-swing';
 import { interiorAngle } from './angle-calculator';
+import { toIsotropicFrame } from '../coordinates/isotropic';
 
 export const VERSION = 'GOLF_SWING_METRICS_V1';
 
@@ -203,12 +204,15 @@ export function computeHeadRotation(
  * Extracts complete kinematic metrics for a single P-phase frame.
  */
 export function extractPhaseKinematics(
-  frame: PoseFrame,
+  rawFrame: PoseFrame,
   phaseId: SwingPhaseId,
-  addressFrame: PoseFrame,
+  rawAddressFrame: PoseFrame,
   viewAngle: CameraViewAngle,
   isRightHanded = true
 ): SwingKinematics {
+  // Angles, inclinations and turn (dz/dx) are only valid when all axes share a scale.
+  const frame = toIsotropicFrame(rawFrame);
+  const addressFrame = toIsotropicFrame(rawAddressFrame);
   const ls = getLandmark(frame, LandmarkId.LEFT_SHOULDER);
   const rs = getLandmark(frame, LandmarkId.RIGHT_SHOULDER);
   const lh = getLandmark(frame, LandmarkId.LEFT_HIP);

@@ -10,6 +10,7 @@ import { interiorAngle } from '../metrics/angle-calculator';
 import { PhaseEngine, MovementPhase } from '../motion/phases/phase-engine';
 import { AudioCoachService } from './audio-coach';
 import { CoachingPhraseKey } from './i18n/locales';
+import { toIsotropicLandmarks } from '../coordinates/isotropic';
 
 export interface LiveCoachingEngineCallbacks {
   onRepComplete?: (repNumber: number) => void;
@@ -52,7 +53,8 @@ export class LiveCoachingEngine {
   }
 
   public processFrame(frame: PoseFrame): void {
-    const lms = frame.landmarks;
+    // Angles are only valid when x and y share a scale (non-square video).
+    const lms = toIsotropicLandmarks(frame.landmarks ?? [], frame.width, frame.height);
     if (!lms || lms.length < 33) return;
 
     const shoulder = lms.find(l => l.id === LandmarkId.LEFT_SHOULDER);

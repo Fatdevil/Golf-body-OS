@@ -10,6 +10,7 @@ import { RotationPhaseEngine, RotationPhase } from '../motion/phases/rotation-ph
 import { extractRotationSample, RotationSample } from '../metrics/thoracic-rotation-metrics';
 import { AudioCoachService, CuePriority } from './audio-coach';
 import { CoachingPhraseKey } from './i18n/locales';
+import { toIsotropicLandmarks } from '../coordinates/isotropic';
 
 export interface LiveRotationCoachingCallbacks {
   onPhaseChange?: (phase: RotationPhase) => void;
@@ -51,7 +52,8 @@ export class LiveRotationCoachingEngine {
   }
 
   public processFrame(frame: PoseFrame): void {
-    const lms = frame.landmarks;
+    // Tilt and dz/dx are only valid when all axes share a scale (non-square video).
+    const lms = toIsotropicLandmarks(frame.landmarks ?? [], frame.width, frame.height);
     if (!lms || lms.length < 33) return;
 
     const sample = extractRotationSample(lms, frame.frameId, frame.timestampMs);

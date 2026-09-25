@@ -17,3 +17,6 @@ export { getSensorOrientationFromDevice } from './camera-orientation';
 
 // preview-transform
 export { getPreviewTransform } from './preview-transform';
+
+// isotropic
+export { toIsotropicLandmarks, toIsotropicFrame, isotropicScaleX } from './isotropic';
