@@ -17,6 +17,12 @@ export const VERSION = 'GOLF_BODY_SCORE_V1';
 export type GolfBodyTier = 'TOUR_ELITE' | 'SOLID' | 'MODERATE' | 'RESTRICTED';
 
 export interface HipHingeSubScore {
+  /**
+   * false when the hip hinge test was not performed or produced no valid
+   * repetitions. All numbers are then 0 and must not be read as a result.
+   * Undefined (legacy stored sessions) is treated as measured.
+   */
+  measured?: boolean;
   total: number;             // 0–50
   depthScore: number;        // 0–25
   kneeScore: number;         // 0–15
@@ -27,6 +33,8 @@ export interface HipHingeSubScore {
 }
 
 export interface ThoracicSubScore {
+  /** false when the rotation test was not performed (see HipHingeSubScore.measured). */
+  measured?: boolean;
   total: number;             // 0–50
   rotationScore: number;     // 0–25
   disassociationScore: number; // 0–15
@@ -84,23 +92,23 @@ export function calculateGolfBodyScore(
   let avgKneeAngle = 0;
   const hingeComps: string[] = [];
 
-  if (hingeReport && hingeReport.measurement) {
-    const metrics = hingeReport.measurement.metrics || [];
+  const hingeMetrics = hingeReport?.measurement?.metrics || [];
+  const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  const hingeAngles = hingeMetrics.filter(m => m.id === 'HIP_HINGE_ANGLE_2D').map(m => m.value).filter(isFiniteNumber);
+  const kneeAngles = hingeMetrics.filter(m => m.id === 'KNEE_ANGLE_AT_ENDPOINT').map(m => m.value).filter(isFiniteNumber);
+  // Only score what was actually measured. (Missing angles used to default to
+  // 85°/155°, i.e. an ideal hinge worth 50/50 without any measurement.)
+  const hingeMeasured = hingeAngles.length > 0 && kneeAngles.length > 0;
+  const thoracicMeasured = rotationResult !== null && rotationResult !== undefined;
+
+  if (hingeReport && hingeReport.measurement && hingeMeasured) {
     const comps = hingeReport.measurement.compensations || [];
     comps.forEach(c => {
       if (!hingeComps.includes(c.type)) hingeComps.push(c.type);
     });
 
-    const hingeAngles = metrics.filter(m => m.id === 'HIP_HINGE_ANGLE_2D').map(m => m.value);
-    const kneeAngles = metrics.filter(m => m.id === 'KNEE_ANGLE_AT_ENDPOINT').map(m => m.value);
-
-    avgHingeAngle = hingeAngles.length > 0
-      ? hingeAngles.reduce((a, b) => a + b, 0) / hingeAngles.length
-      : 85;
-
-    avgKneeAngle = kneeAngles.length > 0
-      ? kneeAngles.reduce((a, b) => a + b, 0) / kneeAngles.length
-      : 155;
+    avgHingeAngle = hingeAngles.reduce((a, b) => a + b, 0) / hingeAngles.length;
+    avgKneeAngle = kneeAngles.reduce((a, b) => a + b, 0) / kneeAngles.length;
 
     // 1. Depth score (0–25)
     // Optimal: <= 90° = 25 pts. 90°-105° = 25 -> 13. 105°-125° = 13 -> 0. > 125° = 0.
@@ -219,8 +227,10 @@ export function calculateGolfBodyScore(
   const keyStrengths: string[] = [];
   const primaryBottlenecks: string[] = [];
 
-  // Hip hinge evaluations
-  if (depthScore >= 20) {
+  // Hip hinge evaluations (only for a measured pillar — never invent findings)
+  if (!hingeMeasured) {
+    // not tested: no strengths or bottlenecks
+  } else if (depthScore >= 20) {
     keyStrengths.push(isSv
       ? 'Djup och rörlig höftfällning som möjliggör stabil ryggradsvinkel i baksvingen'
       : 'Deep and mobile hip hinge enabling stable posture maintenance in the swing');
@@ -230,7 +240,9 @@ export function calculateGolfBodyScore(
       : 'Restricted posterior chain mobility limiting hinge depth and risking lumbar rounding');
   }
 
-  if (kneeScore >= 12) {
+  if (!hingeMeasured) {
+    // not tested
+  } else if (kneeScore >= 12) {
     keyStrengths.push(isSv
       ? 'God knävinkelkontroll med bibehållen sätesaktivering utan att knäböja'
       : 'Solid knee flex control maintaining glute loading without squatting');
@@ -240,7 +252,7 @@ export function calculateGolfBodyScore(
       : 'Squat pattern compensation during hinge – increases risk of Early Extension');
   }
 
-  if (hingeComps.includes('CERVICAL_CRANING')) {
+  if (hingeMeasured && hingeComps.includes('CERVICAL_CRANING')) {
     primaryBottlenecks.push(isSv
       ? 'Nacklyft (blicken lyfts) i bottenläget blockerar bröstryggens rotation och belastar nacken'
       : 'Cervical craning at bottom of hinge blocks thoracic rotation and strains the neck');
@@ -248,7 +260,9 @@ export function calculateGolfBodyScore(
 
   // Thoracic evaluations
   const avgRot = (maxLeft + maxRight) / 2;
-  if (rotationScore >= 20) {
+  if (!thoracicMeasured) {
+    // not tested: no strengths or bottlenecks
+  } else if (rotationScore >= 20) {
     keyStrengths.push(isSv
       ? `Stark bröstryggsrörlighet (${avgRot.toFixed(1)}° i snitt) ger stor svingbåge utan att behöva lyfta armarna`
       : `High thoracic mobility (${avgRot.toFixed(1)}° avg) creates full swing turn without forced arm lift`);
@@ -258,7 +272,9 @@ export function calculateGolfBodyScore(
       : `Restricted thoracic rotation (${avgRot.toFixed(1)}°) – forces compensatory arm lifting and swing plane issues`);
   }
 
-  if (disassociationScore >= 12) {
+  if (!thoracicMeasured) {
+    // not tested
+  } else if (disassociationScore >= 12) {
     keyStrengths.push(isSv
       ? 'Utmärkt bäckendissociation – förmåga att hålla höften stilla medan överkroppen vrider sig (X-Factor)'
       : 'Excellent pelvic disassociation – ability to isolate thoracic turn while stabilizing pelvis (X-Factor)');
@@ -268,7 +284,9 @@ export function calculateGolfBodyScore(
       : `Excessive pelvic rotation (${maxPelvicTurn.toFixed(1)}°) dissipates rotational torque and X-Factor power`);
   }
 
-  if (symmetryScore >= 4) {
+  if (!thoracicMeasured) {
+    // not tested
+  } else if (symmetryScore >= 4) {
     keyStrengths.push(isSv
       ? `God rotationsbalans mellan vänster (${maxLeft.toFixed(1)}°) och höger (${maxRight.toFixed(1)}°)`
       : `Well-balanced rotation between left (${maxLeft.toFixed(1)}°) and right (${maxRight.toFixed(1)}°)`);
@@ -285,14 +303,21 @@ export function calculateGolfBodyScore(
   }
 
   // Fallback defaults if empty (do not fabricate bottlenecks when none exist)
-  if (keyStrengths.length === 0 && primaryBottlenecks.length === 0) {
+  if (keyStrengths.length === 0 && primaryBottlenecks.length === 0 && (hingeMeasured || thoracicMeasured)) {
     keyStrengths.push(isSv ? 'God grundläggande rörelsemedvetenhet' : 'Good foundational movement awareness');
   }
 
   // Summary statement
-  const summary = isSv
+  const notTestedSv = [!hingeMeasured ? 'höftfällningen' : null, !thoracicMeasured ? 'bröstryggsrotationen' : null].filter(Boolean);
+  const notTestedEn = [!hingeMeasured ? 'the hip hinge' : null, !thoracicMeasured ? 'thoracic rotation' : null].filter(Boolean);
+  const notTestedNote = notTestedSv.length > 0
+    ? (isSv
+      ? ` Ej testat: ${notTestedSv.join(' och ')} (räknas inte som resultat).`
+      : ` Not tested: ${notTestedEn.join(' and ')} (not counted as a result).`)
+    : '';
+  const summary = (isSv
     ? `Ditt Golf Body Score är ${totalScore}/100 (${tierLabel}). Med ${hipHingeTotal}/50 på höftfällningen och ${thoracicTotal}/50 på bröstryggsrörligheten har du ${tier === 'TOUR_ELITE' || tier === 'SOLID' ? 'en stark atletisk grund för en konsekvent sving.' : 'tydliga utvecklingsområden för att öka svinghastigheten och skydda ländryggen.'}`
-    : `Your Golf Body Score is ${totalScore}/100 (${tierLabel}). With ${hipHingeTotal}/50 in the hip hinge and ${thoracicTotal}/50 in thoracic mobility, you have ${tier === 'TOUR_ELITE' || tier === 'SOLID' ? 'a strong athletic foundation for consistent ball striking.' : 'clear priority areas to unlock swing speed and protect your lumbar spine.'}`;
+    : `Your Golf Body Score is ${totalScore}/100 (${tierLabel}). With ${hipHingeTotal}/50 in the hip hinge and ${thoracicTotal}/50 in thoracic mobility, you have ${tier === 'TOUR_ELITE' || tier === 'SOLID' ? 'a strong athletic foundation for consistent ball striking.' : 'clear priority areas to unlock swing speed and protect your lumbar spine.'}`) + notTestedNote;
 
   return {
     totalScore,
@@ -300,6 +325,7 @@ export function calculateGolfBodyScore(
     tierLabel,
     tierColor,
     hipHinge: {
+      measured: hingeMeasured,
       total: hipHingeTotal,
       depthScore: Math.round(depthScore),
       kneeScore: Math.round(kneeScore),
@@ -309,6 +335,7 @@ export function calculateGolfBodyScore(
       compensations: hingeComps,
     },
     thoracic: {
+      measured: thoracicMeasured,
       total: thoracicTotal,
       rotationScore: Math.round(rotationScore),
       disassociationScore: Math.round(disassociationScore),

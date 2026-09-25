@@ -180,4 +180,36 @@ describe('Golf Body Score Engine', () => {
     expect(result.thoracic.total).toBe(0);
     expect(typeof result.summary).toBe('string');
   });
+
+  it('does not award points for a hip hinge report without measured angles', () => {
+    // Previously missing angles defaulted to 85°/155° — an ideal hinge worth 50/50.
+    const result = calculateGolfBodyScore(createMockHingeReport({ hingeAngles: [], kneeAngles: [] }), null, 'sv-SE');
+
+    expect(result.hipHinge.measured).toBe(false);
+    expect(result.hipHinge.total).toBe(0);
+    expect(result.totalScore).toBe(0);
+  });
+
+  it('invents no strengths or bottlenecks for a pillar that was not tested', () => {
+    const hingeOnly = calculateGolfBodyScore(createMockHingeReport({}), null, 'sv-SE');
+    expect(hingeOnly.hipHinge.measured).toBe(true);
+    expect(hingeOnly.thoracic.measured).toBe(false);
+    // no "Begränsad bröstryggsrörlighet (0.0°)" from a test that never ran
+    const all = [...hingeOnly.primaryBottlenecks, ...hingeOnly.keyStrengths].join(' ');
+    expect(all).not.toMatch(/bröstrygg|rotation|bäcken|dip/i);
+    expect(hingeOnly.summary).toContain('Ej testat: bröstryggsrotationen');
+
+    const rotationOnly = calculateGolfBodyScore(null, createMockRotationResult(), 'en-US');
+    const allRot = [...rotationOnly.primaryBottlenecks, ...rotationOnly.keyStrengths].join(' ');
+    expect(allRot).not.toMatch(/hinge|knee|posterior chain|cervical/i);
+    expect(rotationOnly.summary).toContain('Not tested: the hip hinge');
+  });
+
+  it('marks both pillars as not measured and lists no findings when nothing was tested', () => {
+    const result = calculateGolfBodyScore(null, null, 'en-US');
+    expect(result.hipHinge.measured).toBe(false);
+    expect(result.thoracic.measured).toBe(false);
+    expect(result.primaryBottlenecks).toEqual([]);
+    expect(result.keyStrengths).toEqual([]);
+  });
 });

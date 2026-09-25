@@ -139,18 +139,25 @@ export default function App() {
 
     const tierDetails = getTierDetailsForScore(result.totalScore, isSv);
     
+    // Start from "not measured" with zeros; only steps that actually ran fill in
+    // real values. (Previously invented defaults — 95°, 35°/40°, … — were fed to
+    // the training engine as if they had been measured.)
+    const hingeStep = result.stepResults.find(s => s.stepId === 'HIP_HINGE');
+    const thoracicStep = result.stepResults.find(s => s.stepId === 'THORACIC_ROTATION');
     const mockGolfScore = {
       totalScore: result.totalScore,
       tier: tierDetails.tier,
       tierLabel: tierDetails.tierLabel, 
       tierColor: tierDetails.tierColor,
       hipHinge: {
-        total: result.stepResults.find(s => s.stepId === 'HIP_HINGE')?.pillarScore ?? 25,
-        depthScore: 15, kneeScore: 8, spineScore: 5, avgHingeAngle: 95, avgKneeAngle: 155, compensations: [] as string[],
+        measured: !!hingeStep?.subMetrics,
+        total: hingeStep?.pillarScore ?? 0,
+        depthScore: 0, kneeScore: 0, spineScore: 0, avgHingeAngle: 0, avgKneeAngle: 0, compensations: [] as string[],
       },
       thoracic: {
-        total: result.stepResults.find(s => s.stepId === 'THORACIC_ROTATION')?.pillarScore ?? 25,
-        rotationScore: 15, disassociationScore: 8, symmetryScore: 3, dipScore: 3, maxLeft: 35, maxRight: 40, asymmetry: 5, maxPelvicTurn: 12, hasExcessiveDip: false, hasExcessivePelvic: false,
+        measured: !!thoracicStep?.subMetrics,
+        total: thoracicStep?.pillarScore ?? 0,
+        rotationScore: 0, disassociationScore: 0, symmetryScore: 0, dipScore: 0, maxLeft: 0, maxRight: 0, asymmetry: 0, maxPelvicTurn: 0, hasExcessiveDip: false, hasExcessivePelvic: false,
       },
       keyStrengths: result.keyStrengths,
       primaryBottlenecks: result.primaryBottlenecks,

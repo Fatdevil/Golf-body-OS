@@ -40,6 +40,11 @@ function scoreToQuality(score: number, maxScore: number): AreaQuality {
   return 'POOR';
 }
 
+/** A pillar is measured unless explicitly marked otherwise (legacy sessions lack the flag). */
+function isMeasured(sub: { measured?: boolean }): boolean {
+  return sub.measured !== false;
+}
+
 function tierToGolfBodyTier(tier: string): GolfBodyTier {
   switch (tier) {
     case 'TOUR_ELITE': return 'TOUR_ELITE';
@@ -164,8 +169,13 @@ function extractFindings(score: GolfBodyScoreResult): {
   const bottlenecks: BodyFinding[] = [];
   const strengths: BodyFinding[] = [];
 
-  // Hip hinge findings
-  if (score.hipHinge.depthScore < 13) {
+  const hingeMeasured = isMeasured(score.hipHinge);
+  const thoracicMeasured = isMeasured(score.thoracic);
+
+  // Hip hinge findings (untested pillars produce no findings)
+  if (!hingeMeasured) {
+    // not tested
+  } else if (score.hipHinge.depthScore < 13) {
     bottlenecks.push({
       id: 'hip-hinge-limited',
       domain: 'MOBILITY',
@@ -195,7 +205,7 @@ function extractFindings(score: GolfBodyScoreResult): {
   }
 
   // Knee strategy finding
-  if (score.hipHinge.kneeScore < 8) {
+  if (hingeMeasured && score.hipHinge.kneeScore < 8) {
     bottlenecks.push({
       id: 'hip-hinge-compensation-knee',
       domain: 'MOTOR_CONTROL',
@@ -213,7 +223,9 @@ function extractFindings(score: GolfBodyScoreResult): {
   }
 
   // Thoracic rotation findings
-  if (score.thoracic.rotationScore < 13) {
+  if (!thoracicMeasured) {
+    // not tested
+  } else if (score.thoracic.rotationScore < 13) {
     bottlenecks.push({
       id: 'thoracic-rotation-limited',
       domain: 'MOBILITY',
@@ -243,7 +255,7 @@ function extractFindings(score: GolfBodyScoreResult): {
   }
 
   // Asymmetry finding
-  if (score.thoracic.asymmetry > 8) {
+  if (thoracicMeasured && score.thoracic.asymmetry > 8) {
     bottlenecks.push({
       id: 'thoracic-rotation-asymmetry',
       domain: 'MOBILITY',
@@ -261,7 +273,7 @@ function extractFindings(score: GolfBodyScoreResult): {
   }
 
   // Pelvic over-rotation
-  if (score.thoracic.hasExcessivePelvic) {
+  if (thoracicMeasured && score.thoracic.hasExcessivePelvic) {
     bottlenecks.push({
       id: 'pelvic-over-rotation',
       domain: 'MOTOR_CONTROL',
@@ -304,9 +316,11 @@ export function screeningToProfile(
   const now = new Date();
 
   // Map sub-scores to area scores
+  const hingeMeasured = isMeasured(score.hipHinge);
+  const thoracicMeasured = isMeasured(score.thoracic);
   const mobilityAreas: AreaScore[] = [
-    ...mapHipHingeToAreas(score.hipHinge),
-    ...mapThoracicToAreas(score.thoracic),
+    ...(hingeMeasured ? mapHipHingeToAreas(score.hipHinge) : []),
+    ...(thoracicMeasured ? mapThoracicToAreas(score.thoracic) : []),
   ];
 
   // Compute mobility composite (0-100)
@@ -317,11 +331,11 @@ export function screeningToProfile(
   // Mobility domain
   const mobility: DomainAssessment = {
     domain: 'MOBILITY',
-    status: 'MEASURED',
+    status: mobilityAreas.length > 0 ? 'MEASURED' : 'NOT_TESTED',
     areas: mobilityAreas,
     compositeScore: mobilityComposite,
-    confidence: 'HIGH',
-    lastTestedAt: now,
+    confidence: mobilityAreas.length > 0 ? 'HIGH' : 'LOW',
+    lastTestedAt: mobilityAreas.length > 0 ? now : null,
     source: 'SCREENING',
   };
 
@@ -329,7 +343,7 @@ export function screeningToProfile(
   const controlAreas: AreaScore[] = [];
 
   // Spine control from hinge test
-  if (score.hipHinge.spineScore < 10) {
+  if (hingeMeasured && score.hipHinge.spineScore < 10) {
     controlAreas.push({
       areaId: 'trunk-control-poor',
       label: { sv: 'Bålkontroll', en: 'Trunk Control' },
@@ -343,7 +357,7 @@ export function screeningToProfile(
   }
 
   // Pelvic control from rotation test
-  if (score.thoracic.disassociationScore < 15) {
+  if (thoracicMeasured && score.thoracic.disassociationScore < 15) {
     controlAreas.push({
       areaId: 'pelvic-stability-poor',
       label: { sv: 'Bäckenstabilitet', en: 'Pelvic Stability' },
