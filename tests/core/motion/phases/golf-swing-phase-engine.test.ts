@@ -1,4 +1,4 @@
-import { GolfSwingPhaseEngine } from '../../../../src/core/motion/phases/golf-swing-phase-engine';
+import { GolfSwingPhaseEngine, NoSwingDetectedError } from '../../../../src/core/motion/phases/golf-swing-phase-engine';
 import { generate240FpsSwingSequence } from '../../../../src/core/data/sample-240fps-swing';
 import { ORDERED_SWING_PHASES } from '../../../../src/core/types/golf-swing';
 
@@ -11,6 +11,23 @@ describe('GolfSwingPhaseEngine', () => {
 
   it('should reject sequences with insufficient frames', () => {
     expect(() => engine.analyzeSequence([])).toThrow('minimum 15 required');
+  });
+
+  it('abstains with NoSwingDetectedError instead of guessing phases when no swing is present', () => {
+    // Golfer standing still at address for 2 s at 30 fps: nothing to detect.
+    const address = generate240FpsSwingSequence(480)[0]!;
+    const still = Array.from({ length: 60 }, (_, i) => ({
+      ...address,
+      frameId: i,
+      timestampMs: (i * 1000) / 30,
+    }));
+
+    expect(() => engine.analyzeSequence(still)).toThrow(NoSwingDetectedError);
+    try {
+      engine.analyzeSequence(still);
+    } catch (e) {
+      expect((e as NoSwingDetectedError).code).toBe('NO_SWING_DETECTED');
+    }
   });
 
   it('should detect all 10 P-positions on a 240 fps swing sequence', () => {
@@ -486,13 +503,15 @@ describe('GolfSwingPhaseEngine', () => {
     expect(result.tempo.tempoRatio).toBeGreaterThanOrEqual(2.0);
   });
 
-  it('should maintain strict monotonic ordering without collapsing P6 onto P5 on a 15-frame minimum sequence', () => {
-    // Generate an exact 15-frame minimum sequence (downsampled from 240fps)
+  it('should maintain strict monotonic ordering without collapsing P6 onto P5 on a sparse (10 fps) sequence', () => {
+    // Sparsest sampling at which the swing is still detected: 20 frames over the real 2 s swing.
     const allFrames = generate240FpsSwingSequence(480);
-    const step = Math.floor(allFrames.length / 15);
-    const tightFrames = Array.from({ length: 15 }, (_, idx) => ({
+    const n = 20;
+    const step = Math.floor(allFrames.length / n);
+    const tightFrames = Array.from({ length: n }, (_, idx) => ({
       ...allFrames[idx * step],
-      timestampMs: idx * 33.3
+      frameId: idx,
+      timestampMs: idx * (2000 / n)
     }));
 
     const result = engine.analyzeSequence(tightFrames);
@@ -507,6 +526,17 @@ describe('GolfSwingPhaseEngine', () => {
     expect(result.phases.P6_DELIVERY.frameIndex).toBeGreaterThan(result.phases.P5_SHALLOW.frameIndex);
     expect(result.phases.P8_RELEASE.frameIndex).toBeGreaterThan(result.phases.P7_IMPACT.frameIndex);
     expect(result.phases.P9_REHINGE.frameIndex).toBeGreaterThan(result.phases.P8_RELEASE.frameIndex);
+  });
+
+  it('abstains on a 15-frame sequence too sparse to locate the swing (previously filled with proportional guesses)', () => {
+    const allFrames = generate240FpsSwingSequence(480);
+    const step = Math.floor(allFrames.length / 15);
+    const tightFrames = Array.from({ length: 15 }, (_, idx) => ({
+      ...allFrames[idx * step],
+      timestampMs: idx * 33.3
+    }));
+
+    expect(() => engine.analyzeSequence(tightFrames)).toThrow(NoSwingDetectedError);
   });
 
   it('should preserve anchor positions (P4 Top, P7 Impact) without distortion when subphases fit inside intervals', () => {

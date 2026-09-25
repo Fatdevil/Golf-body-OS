@@ -36,6 +36,20 @@ import { VideoMetadata } from '../../video/mp4-inspector';
 
 export const VERSION = 'GOLF_SWING_PHASE_ENGINE_V1';
 
+/**
+ * Thrown when no golf swing pattern is found in the sequence. The engine
+ * abstains rather than returning guessed phase positions, so no tempo,
+ * faults or swing score are produced from data that was never measured.
+ */
+export class NoSwingDetectedError extends Error {
+  readonly code = 'NO_SWING_DETECTED' as const;
+
+  constructor(readonly frameCount: number) {
+    super(`No golf swing detected in ${frameCount} frames — abstaining (no phases, tempo or score)`);
+    this.name = 'NoSwingDetectedError';
+  }
+}
+
 export interface GolfSwingPhaseEngineOptions {
   viewAngle?: CameraViewAngle;
   isRightHanded?: boolean;
@@ -135,7 +149,7 @@ export class GolfSwingPhaseEngine {
     });
 
     // 1. Stage 1: Detect Cardinal Anchors (P1, P4, P7, P10)
-    const { p1Idx, p4Idx, p7Idx, p10Idx, isFallback } = this.findAnchors(handTrajectory, sanitizedFrames, this.viewAngle, frameRate);
+    const { p1Idx, p4Idx, p7Idx, p10Idx } = this.findAnchors(handTrajectory, sanitizedFrames, this.viewAngle, frameRate);
 
     // 2. Stage 2: Detect Intermediate Phases
     const p2Idx = this.findSubPhaseP2(handTrajectory, sanitizedFrames, p1Idx, p4Idx);
@@ -218,7 +232,7 @@ export class GolfSwingPhaseEngine {
       const targetFrame = frames[idx] || frames[0];
       if (!targetFrame) continue;
       const isAnchor = phaseId === 'P1_ADDRESS' || phaseId === 'P4_TOP' || phaseId === 'P7_IMPACT' || phaseId === 'P10_FINISH';
-      const confidence = isFallback ? 0.35 : (isAnchor ? 0.95 : 0.90);
+      const confidence = isAnchor ? 0.95 : 0.90;
       const evt: SwingPhaseEvent = {
         phaseId,
         frameIndex: idx,
@@ -685,20 +699,11 @@ export class GolfSwingPhaseEngine {
       }
     }
 
-    // Final safety fallback if no swing pattern could be found
+    // No swing pattern found: abstain instead of inventing phase positions.
+    // (A proportional P4/P7/P10 guess used to feed tempo, faults and the swing
+    // score as if it had been measured.)
     if (result.score === -Infinity) {
-      console.warn("Sequential decoder failed to find a golf swing, using proportional fallback");
-      const p1 = 0;
-      const p4 = Math.max(3, Math.floor(totalFrames * 0.35));
-      const p7 = Math.max(p4 + 3, Math.floor(totalFrames * 0.55));
-      const p10 = Math.max(p7 + 3, Math.min(totalFrames - 1, Math.floor(totalFrames * 0.85)));
-      return { 
-        p1Idx: p1, 
-        p4Idx: p4, 
-        p7Idx: p7, 
-        p10Idx: p10,
-        isFallback: true
-      };
+      throw new NoSwingDetectedError(totalFrames);
     }
 
     // 5. P1 is the last resting frame of address before takeaway (found by backward search)
@@ -750,8 +755,7 @@ export class GolfSwingPhaseEngine {
       p1Idx: p1Refined, 
       p4Idx: result.p4Idx, 
       p7Idx: result.p7Idx, 
-      p10Idx: p10Refined,
-      isFallback: false
+      p10Idx: p10Refined
     };
   }
 
