@@ -26,9 +26,13 @@ import {
   detectSwingFaults,
   calculateSwingTempo,
   getLandmark,
-  getMidpoint
+  getMidpoint,
+  computeRelativeTurn
 } from '../../metrics/golf-swing-metrics';
 import { sanitizeGolfPoseFrame } from '../filters/anatomical-filter';
+import { smoothPoseSequence, PoseSmootherConfig } from '../filters/pose-smoother';
+import { evaluateVideoQuality, QualityCheckResult, QualityEngineOptions } from '../../quality';
+import { VideoMetadata } from '../../video/mp4-inspector';
 
 export const VERSION = 'GOLF_SWING_PHASE_ENGINE_V1';
 
@@ -37,6 +41,10 @@ export interface GolfSwingPhaseEngineOptions {
   isRightHanded?: boolean;
   autoDetectHandedness?: boolean;
   slowMotionFactor?: number;
+  enforceQualityGate?: boolean;
+  qualityOptions?: QualityEngineOptions;
+  enableAdaptiveSmoothing?: boolean;
+  smootherConfig?: Partial<PoseSmootherConfig>;
 }
 
 export class GolfSwingPhaseEngine {
@@ -44,27 +52,62 @@ export class GolfSwingPhaseEngine {
   private isRightHanded: boolean;
   private autoDetectHandedness: boolean;
   private slowMotionFactor: number;
+  private enforceQualityGate: boolean;
+  private qualityOptions?: QualityEngineOptions;
+  private enableAdaptiveSmoothing: boolean;
+  private smootherConfig?: Partial<PoseSmootherConfig>;
 
   constructor(options: GolfSwingPhaseEngineOptions = {}) {
     this.viewAngle = options.viewAngle ?? 'FACE_ON';
     this.isRightHanded = options.isRightHanded ?? true;
     this.autoDetectHandedness = options.autoDetectHandedness ?? true;
     this.slowMotionFactor = options.slowMotionFactor ?? 1.0;
+    this.enforceQualityGate = options.enforceQualityGate ?? false;
+    this.qualityOptions = options.qualityOptions;
+    this.enableAdaptiveSmoothing = options.enableAdaptiveSmoothing ?? false;
+    this.smootherConfig = options.smootherConfig;
+  }
+
+  /**
+   * Validates sequence quality using the pre-flight Video Quality Gate.
+   */
+  public validateQuality(
+    frames: PoseFrame[],
+    metadata?: Partial<VideoMetadata>
+  ): QualityCheckResult {
+    return evaluateVideoQuality(frames, metadata, this.qualityOptions);
   }
 
   /**
    * Analyzes an entire sequence of PoseFrames and extracts all 10 P-phases.
    */
-  public analyzeSequence(frames: PoseFrame[]): GolfSwingAnalysisResult {
+  public analyzeSequence(
+    frames: PoseFrame[],
+    metadata?: Partial<VideoMetadata>
+  ): GolfSwingAnalysisResult {
     if (!frames || frames.length < 15) {
       throw new Error(`Insufficient frames for golf swing analysis: received ${frames?.length ?? 0}, minimum 15 required`);
+    }
+
+    let qualityResult: QualityCheckResult | undefined;
+    if (this.enforceQualityGate) {
+      qualityResult = this.validateQuality(frames, metadata);
+      if (qualityResult.overallStatus === 'FAIL') {
+        const topError = qualityResult.warnings.find((w) => w.severity === 'error');
+        throw new Error(`Video Quality Gate rejected sequence: ${topError?.message || 'Insufficient video quality'}`);
+      }
     }
 
     // Determine effective framerate from timestamps
     const frameRate = this.estimateFrameRate(frames);
 
+    // Apply velocity-adaptive EMA smoothing if enabled
+    const smoothedFrames = this.enableAdaptiveSmoothing
+      ? smoothPoseSequence(frames, this.smootherConfig)
+      : frames;
+
     // Sanitize frames through the anatomical bone guard to eliminate hallucinations
-    const sanitizedFrames = frames.map((f) => sanitizeGolfPoseFrame(f));
+    const sanitizedFrames = smoothedFrames.map((f) => sanitizeGolfPoseFrame(f));
 
     // Compute hand trajectory and velocities
     let lastKnownHandPos = { x: 0.5, y: 0.5, z: 0 };
@@ -116,19 +159,53 @@ export class GolfSwingPhaseEngine {
     };
 
     // Strict Monotonicity Sanitizer: Guarantee p1 < p2 < p3 < p4 < p5 < p6 < p7 < p8 < p9 < p10
+    // Stage A: Anchor-preserving window-bounded sub-phase adjustment
+    // [P1, P4]: Fit P2, P3 strictly between P1 and P4 without shifting anchors
+    if (phaseIndices.P4_TOP - phaseIndices.P1_ADDRESS >= 3) {
+      phaseIndices.P2_TAKEAWAY = Math.max(phaseIndices.P1_ADDRESS + 1, phaseIndices.P2_TAKEAWAY);
+      phaseIndices.P3_HALFWAY_BACK = Math.max(phaseIndices.P2_TAKEAWAY + 1, phaseIndices.P3_HALFWAY_BACK);
+      if (phaseIndices.P3_HALFWAY_BACK >= phaseIndices.P4_TOP) {
+        phaseIndices.P3_HALFWAY_BACK = phaseIndices.P4_TOP - 1;
+        phaseIndices.P2_TAKEAWAY = Math.min(phaseIndices.P2_TAKEAWAY, phaseIndices.P3_HALFWAY_BACK - 1);
+      }
+    }
+    // [P4, P7]: Fit P5, P6 strictly between P4 and P7 without shifting Top or Impact
+    if (phaseIndices.P7_IMPACT - phaseIndices.P4_TOP >= 3) {
+      phaseIndices.P5_SHALLOW = Math.max(phaseIndices.P4_TOP + 1, phaseIndices.P5_SHALLOW);
+      phaseIndices.P6_DELIVERY = Math.max(phaseIndices.P5_SHALLOW + 1, phaseIndices.P6_DELIVERY);
+      if (phaseIndices.P6_DELIVERY >= phaseIndices.P7_IMPACT) {
+        phaseIndices.P6_DELIVERY = phaseIndices.P7_IMPACT - 1;
+        phaseIndices.P5_SHALLOW = Math.min(phaseIndices.P5_SHALLOW, phaseIndices.P6_DELIVERY - 1);
+      }
+    }
+    // [P7, P10]: Fit P8, P9 strictly between P7 and P10 without shifting Impact or Finish
+    if (phaseIndices.P10_FINISH - phaseIndices.P7_IMPACT >= 3) {
+      phaseIndices.P8_RELEASE = Math.max(phaseIndices.P7_IMPACT + 1, phaseIndices.P8_RELEASE);
+      phaseIndices.P9_REHINGE = Math.max(phaseIndices.P8_RELEASE + 1, phaseIndices.P9_REHINGE);
+      if (phaseIndices.P9_REHINGE >= phaseIndices.P10_FINISH) {
+        phaseIndices.P9_REHINGE = phaseIndices.P10_FINISH - 1;
+        phaseIndices.P8_RELEASE = Math.min(phaseIndices.P8_RELEASE, phaseIndices.P9_REHINGE - 1);
+      }
+    }
+
+    // Stage B: Global strict monotonicity guarantee across the full sequence
     const orderedKeys = ORDERED_SWING_PHASES;
     for (let k = 1; k < orderedKeys.length; k++) {
       const prevKey = orderedKeys[k - 1];
       const currKey = orderedKeys[k];
       if (prevKey && currKey && phaseIndices[currKey] <= phaseIndices[prevKey]) {
-        phaseIndices[currKey] = Math.min(frames.length - (orderedKeys.length - k), phaseIndices[prevKey] + 1);
+        phaseIndices[currKey] = phaseIndices[prevKey] + 1;
       }
     }
-    for (let k = orderedKeys.length - 2; k >= 0; k--) {
-      const nextKey = orderedKeys[k + 1];
-      const currKey = orderedKeys[k];
-      if (nextKey && currKey && phaseIndices[currKey] >= phaseIndices[nextKey]) {
-        phaseIndices[currKey] = Math.max(0, phaseIndices[nextKey] - 1);
+    const lastKey = orderedKeys[orderedKeys.length - 1];
+    if (lastKey && phaseIndices[lastKey] > frames.length - 1) {
+      phaseIndices[lastKey] = frames.length - 1;
+      for (let k = orderedKeys.length - 2; k >= 0; k--) {
+        const nextKey = orderedKeys[k + 1];
+        const currKey = orderedKeys[k];
+        if (nextKey && currKey && phaseIndices[currKey] >= phaseIndices[nextKey]) {
+          phaseIndices[currKey] = Math.max(0, phaseIndices[nextKey] - 1);
+        }
       }
     }
 
@@ -213,7 +290,8 @@ export class GolfSwingPhaseEngine {
       tempo,
       faults,
       correlations: [], // Enriched by BodySwingCorrelator
-      overallSwingScore
+      overallSwingScore,
+      quality: qualityResult
     };
   }
 
@@ -237,33 +315,7 @@ export class GolfSwingPhaseEngine {
     addressFrame: PoseFrame,
     isRightHanded: boolean
   ): number {
-    const ls = getLandmark(frame, LandmarkId.LEFT_SHOULDER);
-    const rs = getLandmark(frame, LandmarkId.RIGHT_SHOULDER);
-    const addrLS = getLandmark(addressFrame, LandmarkId.LEFT_SHOULDER);
-    const addrRS = getLandmark(addressFrame, LandmarkId.RIGHT_SHOULDER);
-
-    if (!ls || !rs || !addrLS || !addrRS) return 0;
-
-    const addrDx = addrRS.x - addrLS.x;
-    const addrDz = (addrRS.z ?? 0) - (addrLS.z ?? 0);
-    const currDx = rs.x - ls.x;
-    const currDz = (rs.z ?? 0) - (ls.z ?? 0);
-
-    const addrAngle = Math.atan2(addrDz, addrDx);
-    const currAngle = Math.atan2(currDz, currDx);
-
-    let diff = currAngle - addrAngle;
-    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-    let deg = (diff * 180) / Math.PI;
-
-    // In standard MediaPipe Face-On view (golfer facing camera), right shoulder is at smaller X than left shoulder (addrDx < 0).
-    // In camera coordinates, clockwise backswing rotation yields a negative diff,
-    // so invert to ensure backswing is positive for right-handed golfers.
-    if (addrDx < 0) {
-      deg = -deg;
-    }
-
-    return isRightHanded ? deg : -deg;
+    return computeRelativeTurn(frame, addressFrame, isRightHanded);
   }
 
   private findAnchors(
@@ -636,11 +688,15 @@ export class GolfSwingPhaseEngine {
     // Final safety fallback if no swing pattern could be found
     if (result.score === -Infinity) {
       console.warn("Sequential decoder failed to find a golf swing, using proportional fallback");
+      const p1 = 0;
+      const p4 = Math.max(3, Math.floor(totalFrames * 0.35));
+      const p7 = Math.max(p4 + 3, Math.floor(totalFrames * 0.55));
+      const p10 = Math.max(p7 + 3, Math.min(totalFrames - 1, Math.floor(totalFrames * 0.85)));
       return { 
-        p1Idx: 0, 
-        p4Idx: Math.floor(totalFrames * 0.35), 
-        p7Idx: Math.floor(totalFrames * 0.50), 
-        p10Idx: Math.min(totalFrames - 1, Math.floor(totalFrames * 0.75)),
+        p1Idx: p1, 
+        p4Idx: p4, 
+        p7Idx: p7, 
+        p10Idx: p10,
         isFallback: true
       };
     }
@@ -711,7 +767,7 @@ export class GolfSwingPhaseEngine {
   ): number {
     const minIdx = p1Idx + 1;
     const maxIdx = p4Idx - 2;
-    if (minIdx >= maxIdx) return Math.min(frames.length - 1, p1Idx + 1);
+    if (minIdx >= maxIdx) return Math.max(minIdx, p1Idx + 1);
 
     const addrFrame = frames[p1Idx] || frames[0];
     if (!addrFrame) return minIdx;
@@ -767,7 +823,7 @@ export class GolfSwingPhaseEngine {
   ): number {
     const minIdx = p2Idx + 1;
     const maxIdx = p4Idx - 1;
-    if (minIdx >= maxIdx) return Math.min(frames.length - 1, p2Idx + 1);
+    if (minIdx >= maxIdx) return Math.max(minIdx, p2Idx + 1);
 
     let bestIdx = minIdx;
     let minArmSlope = Infinity;
@@ -817,7 +873,7 @@ export class GolfSwingPhaseEngine {
   ): number {
     const minIdx = p4Idx + 1;
     const maxIdx = p7Idx - 2;
-    if (minIdx >= maxIdx) return Math.min(frames.length - 1, p4Idx + 1);
+    if (minIdx >= maxIdx) return Math.max(minIdx, p4Idx + 1);
 
     const addrFrame = frames[p1Idx] || frames[0];
     const p4Frame = frames[p4Idx];
@@ -872,7 +928,7 @@ export class GolfSwingPhaseEngine {
   ): number {
     const minIdx = p5Idx + 1;
     const maxIdx = p7Idx - 1;
-    if (minIdx >= maxIdx) return Math.min(p7Idx - 1, Math.max(minIdx, p5Idx + 1));
+    if (minIdx >= maxIdx) return Math.max(minIdx, p5Idx + 1);
 
     const addrFrame = frames[p1Idx] || frames[0];
     if (!addrFrame) return minIdx;
@@ -928,7 +984,7 @@ export class GolfSwingPhaseEngine {
   ): number {
     const minIdx = p7Idx + 1;
     const maxIdx = p10Idx - 2;
-    if (minIdx >= maxIdx) return Math.min(p10Idx - 2, Math.max(minIdx, p7Idx + 1));
+    if (minIdx >= maxIdx) return Math.max(minIdx, p7Idx + 1);
 
     const addrFrame = frames[p1Idx] || frames[0];
     if (!addrFrame) return minIdx;
@@ -973,7 +1029,7 @@ export class GolfSwingPhaseEngine {
   ): number {
     const minIdx = p8Idx + 1;
     const maxIdx = p10Idx - 1;
-    if (minIdx >= maxIdx) return Math.min(p10Idx - 1, Math.max(minIdx, p8Idx + 1));
+    if (minIdx >= maxIdx) return Math.max(minIdx, p8Idx + 1);
 
     let bestIdx = minIdx;
     let minArmSlope = Infinity;

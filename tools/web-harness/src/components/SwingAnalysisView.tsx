@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Activity, AlertTriangle, Compass, Target, Film, Clock, Zap, RefreshCw } from 'lucide-react';
+import { Upload, Activity, AlertTriangle, Compass, Target, Film, Clock, Zap, RefreshCw, CheckCircle2, ShieldAlert, Palette } from 'lucide-react';
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
 
 import { CameraViewAngle, GolfSwingAnalysisResult, ORDERED_SWING_PHASES, SWING_PHASE_INFO, SwingKinematics, BodySwingCorrelation, SwingPhaseId } from '../../../../src/core/types/golf-swing';
@@ -10,6 +10,13 @@ import { Landmark, LandmarkId } from '../../../../src/core/types/landmark';
 import { extractPhaseKinematics } from '../../../../src/core/metrics/golf-swing-metrics';
 import { sanitizeGolfPoseFrame } from '../../../../src/core/motion/filters/anatomical-filter';
 import { Mp4Inspector, VideoMetadata } from '../../../../src/core/video/mp4-inspector';
+import { evaluateVideoQuality, QualityCheckResult } from '../../../../src/core/quality';
+import { smoothPoseSequence } from '../../../../src/core/motion/filters/pose-smoother';
+import {
+  renderSkeletonCanvas,
+  DEFAULT_SKELETON_THEME,
+  CYAN_SKELETON_THEME,
+} from '../../../../src/core/visualization';
 
 export interface SwingAnalysisViewProps {
   currentBodyScore: any | null;
@@ -27,11 +34,21 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [scanStage, setScanStage] = useState<string>('');
   const [frames, setFrames] = useState<PoseFrame[]>([]);
+  const [enableSmoothing, setEnableSmoothing] = useState<boolean>(true);
   const [activeFrame, setActiveFrame] = useState<PoseFrame | null>(null);
   const [analysisResult, setAnalysisResult] = useState<GolfSwingAnalysisResult | null>(null);
+  const [qualityResult, setQualityResult] = useState<QualityCheckResult | null>(null);
   const [correlations, setCorrelations] = useState<BodySwingCorrelation[]>([]);
   const [viewAngle, setViewAngle] = useState<CameraViewAngle>('FACE_ON');
   const [handednessMode, setHandednessMode] = useState<'AUTO' | 'RIGHT' | 'LEFT'>('AUTO');
+  const [skeletonThemeMode, setSkeletonThemeMode] = useState<'BILATERAL' | 'CYAN'>('BILATERAL');
+  const skeletonThemeModeRef = useRef(skeletonThemeMode);
+
+  // Velocity-Adaptive EMA Smoothing
+  const activeSequence = useMemo(() => {
+    if (!enableSmoothing || frames.length <= 1) return frames;
+    return smoothPoseSequence(frames);
+  }, [frames, enableSmoothing]);
 
   // Video Track & Slow-Motion Settings
   const [videoMeta, setVideoMeta] = useState<VideoMetadata | null>(null);
@@ -280,8 +297,22 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
 
   // KÖR ANALYSEN REAKTIVT: Om användaren byter till Leftie eller DTL, räkna om P1-P10!
   useEffect(() => {
-    if (frames.length === 0) return;
+    if (activeSequence.length === 0) {
+      setQualityResult(null);
+      return;
+    }
     try {
+      // 1. Run Pre-flight Video Quality Gate
+      const quality = evaluateVideoQuality(activeSequence, videoMeta ? {
+        durationSec: videoMeta.durationSec,
+        width: videoMeta.width,
+        height: videoMeta.height,
+        nominalFps: videoMeta.nominalFps,
+        isSlowMotion: videoMeta.isSlowMotion,
+        slowMotionFactor: passedSlowMoFactor
+      } : undefined);
+      setQualityResult(quality);
+
       const isForcedRight = handednessMode === 'RIGHT';
       const isForcedLeft = handednessMode === 'LEFT';
       const shouldAutoDetect = handednessMode === 'AUTO';
@@ -292,97 +323,25 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
         autoDetectHandedness: shouldAutoDetect,
         slowMotionFactor: passedSlowMoFactor
       });
-      const analysis = engine.analyzeSequence(frames);
+      const analysis = engine.analyzeSequence(activeSequence);
       setAnalysisResult(analysis);
 
-      // CORRELATE: Byt ihop Swing Faults med Body Screening
+      // CORRELATE: Knyt ihop Swing Faults med Body Screening
       const detectedCorrelations = BodySwingCorrelator.correlate(currentBodyScore, analysis);
       setCorrelations(detectedCorrelations);
     } catch (err) {
       console.warn("Could not analyze phases:", err);
     }
-  }, [frames, viewAngle, handednessMode, currentBodyScore, language, passedSlowMoFactor]);
+  }, [activeSequence, viewAngle, handednessMode, currentBodyScore, language, passedSlowMoFactor, videoMeta]);
 
-  // 3. Ritfunktion för det rena neon-skelettet
+  // 3. Ritfunktion för skelettet (Bilateral färgkodning & konfidens-opacitet)
   const drawSkeleton = (ctx: CanvasRenderingContext2D, frame: PoseFrame, width: number, height: number) => {
-    ctx.clearRect(0, 0, width, height);
-    if (!frame.landmarks || frame.landmarks.length === 0) return;
-
-    ctx.strokeStyle = '#00f0ff'; // Cyan neon
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    const lms = frame.landmarks;
-
-    const drawLine = (p1Idx: number, p2Idx: number, customColor?: string) => {
-      const p1 = lms.find(l => l.id === p1Idx);
-      const p2 = lms.find(l => l.id === p2Idx);
-      if (p1 && p2 && (p1.visibility ?? 1) >= 0.20 && (p2.visibility ?? 1) >= 0.20) {
-        ctx.strokeStyle = customColor || '#00f0ff';
-        ctx.beginPath();
-        ctx.moveTo(p1.x * width, p1.y * height);
-        ctx.lineTo(p2.x * width, p2.y * height);
-        ctx.stroke();
-      }
-    };
-
-    const drawJoint = (idx: number, color = '#ffffff', radius = 4) => {
-      const p = lms.find(l => l.id === idx);
-      if (p && (p.visibility ?? 1) >= 0.20) {
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(p.x * width, p.y * height, radius, 0, 2 * Math.PI);
-        ctx.fill();
-      }
-    };
-
-    // Torso
-    drawLine(LandmarkId.LEFT_SHOULDER, LandmarkId.RIGHT_SHOULDER);
-    drawLine(LandmarkId.LEFT_HIP, LandmarkId.RIGHT_HIP);
-    drawLine(LandmarkId.LEFT_SHOULDER, LandmarkId.LEFT_HIP);
-    drawLine(LandmarkId.RIGHT_SHOULDER, LandmarkId.RIGHT_HIP);
-
-    // Arms
-    drawLine(LandmarkId.LEFT_SHOULDER, LandmarkId.LEFT_ELBOW);
-    drawLine(LandmarkId.LEFT_ELBOW, LandmarkId.LEFT_WRIST);
-    drawLine(LandmarkId.RIGHT_SHOULDER, LandmarkId.RIGHT_ELBOW);
-    drawLine(LandmarkId.RIGHT_ELBOW, LandmarkId.RIGHT_WRIST);
-    drawLine(LandmarkId.LEFT_WRIST, LandmarkId.RIGHT_WRIST, '#facc15'); // Grip
-    
-    // Legs
-    drawLine(LandmarkId.LEFT_HIP, LandmarkId.LEFT_KNEE);
-    drawLine(LandmarkId.LEFT_KNEE, LandmarkId.LEFT_ANKLE);
-    drawLine(LandmarkId.RIGHT_HIP, LandmarkId.RIGHT_KNEE);
-    drawLine(LandmarkId.RIGHT_KNEE, LandmarkId.RIGHT_ANKLE);
-
-    // Feet (Ankles -> Heels -> Toes)
-    drawLine(LandmarkId.LEFT_ANKLE, LandmarkId.LEFT_HEEL);
-    drawLine(LandmarkId.LEFT_HEEL, LandmarkId.LEFT_FOOT_INDEX);
-    drawLine(LandmarkId.LEFT_ANKLE, LandmarkId.LEFT_FOOT_INDEX); // Knyter ihop foten
-    
-    drawLine(LandmarkId.RIGHT_ANKLE, LandmarkId.RIGHT_HEEL);
-    drawLine(LandmarkId.RIGHT_HEEL, LandmarkId.RIGHT_FOOT_INDEX);
-    drawLine(LandmarkId.RIGHT_ANKLE, LandmarkId.RIGHT_FOOT_INDEX); // Knyter ihop foten
-
-    // Head / Face (Visar tilt och rotation)
-    drawLine(LandmarkId.LEFT_EAR, LandmarkId.LEFT_EYE);
-    drawLine(LandmarkId.LEFT_EYE, LandmarkId.NOSE);
-    drawLine(LandmarkId.NOSE, LandmarkId.RIGHT_EYE);
-    drawLine(LandmarkId.RIGHT_EYE, LandmarkId.RIGHT_EAR);
-
-    // Rita alla leder
-    const joints = [
-      0, 2, 5, 7, 8, // Ansikte (Näsa, Ögon, Öron)
-      11, 12, 13, 14, 15, 16, // Armar & Bål
-      23, 24, 25, 26, 27, 28, // Ben
-      29, 30, 31, 32 // Fötter
-    ];
-    joints.forEach(j => drawJoint(j));
-    
-    // Framhäv händer (greppet) med guld
-    drawJoint(LandmarkId.LEFT_WRIST, '#facc15', 6);
-    drawJoint(LandmarkId.RIGHT_WRIST, '#facc15', 6);
+    const activeTheme = skeletonThemeModeRef.current === 'BILATERAL' ? DEFAULT_SKELETON_THEME : CYAN_SKELETON_THEME;
+    renderSkeletonCanvas(ctx, frame.landmarks, width, height, {
+      theme: activeTheme,
+      minVisibilityThreshold: 0.20,
+      clearFirst: true,
+    });
   };
 
   // 4. Uppspelningsloop (Hitta rätt frame baserat på video.currentTime)
@@ -390,7 +349,7 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
     const video = videoRef.current;
     const canvas = canvasRef.current;
 
-    if (video && canvas && frames.length > 0 && video.videoWidth > 0) {
+    if (video && canvas && activeSequence.length > 0 && video.videoWidth > 0) {
       if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
@@ -399,21 +358,25 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
       const timeMs = video.currentTime * 1000;
       
       // Hitta den pre-scannade bildruta som är närmast videons aktuella tid
-      let closest = frames[0];
+      let closest = activeSequence[0];
       let minDiff = Infinity;
-      for (let i = 0; i < frames.length; i++) {
-        const diff = Math.abs(frames[i].timestampMs - timeMs);
+      for (let i = 0; i < activeSequence.length; i++) {
+        const frameCandidate = activeSequence[i];
+        if (!frameCandidate) continue;
+        const diff = Math.abs(frameCandidate.timestampMs - timeMs);
         if (diff < minDiff) { 
           minDiff = diff; 
-          closest = frames[i]; 
+          closest = frameCandidate; 
         }
       }
 
-      setActiveFrame(closest);
+      if (closest) {
+        setActiveFrame(closest);
 
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        drawSkeleton(ctx, closest, canvas.width, canvas.height);
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          drawSkeleton(ctx, closest, canvas.width, canvas.height);
+        }
       }
     }
 
@@ -421,20 +384,31 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
   };
 
   useEffect(() => {
-    if (frames.length > 0) {
+    if (activeSequence.length > 0) {
       requestRef.current = requestAnimationFrame(renderLoop);
     }
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [frames]); // Starta uppspelning när skanning är klar
+  }, [activeSequence]); // Starta uppspelning när skanning är klar
+
+  // Direkt omritning vid växling av skelettfärgtema (även i pausat läge)
+  useEffect(() => {
+    skeletonThemeModeRef.current = skeletonThemeMode;
+    if (activeFrame && canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) {
+        drawSkeleton(ctx, activeFrame, canvasRef.current.width, canvasRef.current.height);
+      }
+    }
+  }, [skeletonThemeMode, activeFrame]);
 
   // 5. Live Biomekanik-beräkning baserat på aktuell bildruta
   const currentKinematics = useMemo<SwingKinematics | null>(() => {
-    if (!activeFrame || frames.length === 0) return null;
+    if (!activeFrame || activeSequence.length === 0) return null;
     const addressFrame = analysisResult?.phases['P1_ADDRESS'] 
-      ? frames.find(f => f.frameId === analysisResult.phases['P1_ADDRESS']!.frameIndex) || frames[0]
-      : frames[0];
+      ? activeSequence.find(f => f.frameId === analysisResult.phases['P1_ADDRESS']!.frameIndex) || activeSequence[0]
+      : activeSequence[0];
     
     // Fastställ närmaste svingfas baserat på aktuell bildrutas tidsstämpel
     let activePhaseId: SwingPhaseId = 'P1_ADDRESS';
@@ -452,8 +426,8 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
       }
     }
     
-    return extractPhaseKinematics(activeFrame, activePhaseId, addressFrame, viewAngle, effectiveIsRightHanded);
-  }, [activeFrame, frames, analysisResult, viewAngle, effectiveIsRightHanded]);
+    return addressFrame ? extractPhaseKinematics(activeFrame, activePhaseId, addressFrame, viewAngle, effectiveIsRightHanded) : null;
+  }, [activeFrame, activeSequence, analysisResult, viewAngle, effectiveIsRightHanded]);
 
 
   return (
@@ -605,6 +579,38 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
               </select>
             </div>
 
+            {/* Adaptive Smoothing toggle button */}
+            <button
+              onClick={() => setEnableSmoothing((prev) => !prev)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-bold text-xs transition cursor-pointer ${
+                enableSmoothing
+                  ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-300'
+                  : 'bg-slate-900 border-slate-700 text-slate-400'
+              }`}
+              title={isSv ? 'Koppla till/från hastighetsadaptiv EMA-glättare' : 'Toggle velocity-adaptive EMA smoother'}
+            >
+              <Activity size={12} />
+              <span>{isSv ? (enableSmoothing ? 'EMA: På' : 'EMA: Av') : (enableSmoothing ? 'EMA: On' : 'EMA: Off')}</span>
+            </button>
+
+            {/* Skeleton Theme toggle */}
+            <button
+              onClick={() => setSkeletonThemeMode((prev) => (prev === 'BILATERAL' ? 'CYAN' : 'BILATERAL'))}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-bold text-xs transition cursor-pointer ${
+                skeletonThemeMode === 'BILATERAL'
+                  ? 'bg-blue-950/80 border-blue-500/50 text-blue-300'
+                  : 'bg-cyan-950/80 border-cyan-500/50 text-cyan-300'
+              }`}
+              title={isSv ? 'Växla mellan bilateralt färgkodat skelett och cyan neon' : 'Toggle between bilateral color-coded skeleton and cyan neon'}
+            >
+              <Palette size={12} />
+              <span>
+                {skeletonThemeMode === 'BILATERAL'
+                  ? (isSv ? 'Skelett: Bilateralt' : 'Skeleton: Bilateral')
+                  : (isSv ? 'Skelett: Cyan' : 'Skeleton: Cyan')}
+              </span>
+            </button>
+
             {/* Rescan button */}
             {!isAnalyzing && (
               <button
@@ -617,6 +623,53 @@ export default function SwingAnalysisView({ currentBodyScore, language, onNaviga
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Video Quality Gate Banner */}
+      {qualityResult && (
+        <div className={`px-4 py-3 rounded-2xl border text-xs shadow-md transition-all ${
+          qualityResult.overallStatus === 'PASS'
+            ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-200'
+            : qualityResult.overallStatus === 'WARNING'
+            ? 'bg-amber-950/40 border-amber-500/50 text-amber-200'
+            : 'bg-rose-950/40 border-rose-500/50 text-rose-200'
+        }`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 font-bold">
+              {qualityResult.overallStatus === 'PASS' ? (
+                <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+              ) : qualityResult.overallStatus === 'WARNING' ? (
+                <AlertTriangle size={16} className="text-amber-400 shrink-0" />
+              ) : (
+                <ShieldAlert size={16} className="text-rose-400 shrink-0" />
+              )}
+              <span className="text-sm font-black">
+                {qualityResult.overallStatus === 'PASS'
+                  ? (isSv ? 'Videokvalitet: Utmärkt' : 'Video Quality: Excellent')
+                  : qualityResult.overallStatus === 'WARNING'
+                  ? (isSv ? 'Kvalitetskontroll: Godkänd med anmärkning' : 'Quality Check: Acceptable with warnings')
+                  : (isSv ? 'Kvalitetskontroll: Otillräcklig videokvalitet' : 'Quality Check: Insufficient Video Quality')}
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-black/40 border border-current">
+                {Math.round(qualityResult.confidence * 100)}% {isSv ? 'konfidens' : 'confidence'}
+              </span>
+            </div>
+            <div className="text-[11px] font-medium opacity-90">
+              {isSv ? qualityResult.summaryMessageSv : qualityResult.summaryMessageEn}
+            </div>
+          </div>
+
+          {qualityResult.warnings.length > 0 && (
+            <div className="mt-2.5 pt-2.5 border-t border-current/20 flex flex-col gap-1.5">
+              {qualityResult.warnings.map((w, idx) => (
+                <div key={idx} className="flex items-start gap-1.5 text-[11px] opacity-90">
+                  <span className="font-bold">•</span>
+                  <span>{isSv ? w.messageSv : w.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

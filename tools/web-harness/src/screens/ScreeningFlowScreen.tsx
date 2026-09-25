@@ -17,6 +17,7 @@ import { calculateGolfBodyScore, GolfBodyScoreResult } from '../../../../src/cor
 import { ScreeningPlan, ScreeningResult, TestStepResult, CompensationResult } from '../types/screening';
 import { COMPENSATION_LABELS, assessHingeAngleQuality, assessKneeAngleQuality, assessRotationQuality } from '../utils/human-readable';
 import { Volume2, SwitchCamera, Maximize2, Minimize2, X } from 'lucide-react';
+import { renderSkeletonCanvas } from '../../../../src/core/visualization';
 
 const harnessProtocol = {
   id: 'HIP_HINGE_V1',
@@ -44,8 +45,7 @@ function playAudioTone(freq: number, durationMs: number = 150) {
     const gain = audioCtx.createGain();
     osc.type = 'sine';
     osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + durationMs / 1000);
+    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
     osc.connect(gain);
     gain.connect(audioCtx.destination);
     osc.start();
@@ -56,38 +56,10 @@ function playAudioTone(freq: number, durationMs: number = 150) {
 }
 
 function drawSkeleton(ctx: CanvasRenderingContext2D, landmarks: any[], width: number, height: number) {
-  const POSE_CONNECTIONS = [
-    [11, 12], [11, 23], [12, 24], [23, 24], // Torso
-    [23, 25], [24, 26], [25, 27], [26, 28], // Legs
-    [27, 29], [28, 30], [29, 31], [30, 32], [27, 31], [28, 32], // Feet
-    [11, 13], [12, 14], [13, 15], [14, 16], // Arms
-    [7, 8], [8, 0], [7, 0], [0, 1], [1, 2], [2, 3], [3, 7], [0, 4], [4, 5], [5, 6], [6, 8] // Head
-  ];
-
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = '#00FF00';
-  for (const [start, end] of POSE_CONNECTIONS) {
-    if (landmarks[start] && landmarks[end]) {
-      const p1 = landmarks[start];
-      const p2 = landmarks[end];
-      if (p1.visibility > 0.5 && p2.visibility > 0.5) {
-        ctx.beginPath();
-        ctx.moveTo(p1.x * width, p1.y * height);
-        ctx.lineTo(p2.x * width, p2.y * height);
-        ctx.stroke();
-      }
-    }
-  }
-
-  ctx.fillStyle = '#FF0000';
-  for (let i = 0; i < landmarks.length; i++) {
-    const lm = landmarks[i];
-    if (lm.visibility > 0.5) {
-      ctx.beginPath();
-      ctx.arc(lm.x * width, lm.y * height, 3, 0, 2 * Math.PI);
-      ctx.fill();
-    }
-  }
+  renderSkeletonCanvas(ctx, landmarks, width, height, {
+    minVisibilityThreshold: 0.35,
+    clearFirst: false,
+  });
 }
 
 function buildScreeningResult(
@@ -273,7 +245,7 @@ export default function ScreeningFlowScreen({
         missedPresentedFrames: trace.missedPresentedFrames,
         duplicateMediaTimestamps: trace.duplicateMediaTimestamps
       },
-      inference: { meanLatencyMs: null, p50LatencyMs: null, p95LatencyMs: null, maxLatencyMs: null },
+      inference: { meanLatencyMs: 0, p50LatencyMs: 0, p95LatencyMs: 0, maxLatencyMs: 0 },
       landmarks: {
         expectedPerPose: 33,
         validPoseFrameCount: trace.validFrameCount,
@@ -503,7 +475,7 @@ export default function ScreeningFlowScreen({
     appTestStateRef.current = 'SETUP';
     
     readinessEngineRef.current.reset();
-    readinessEngineRef.current.setRequiredView(step.requiredView);
+    readinessEngineRef.current.setRequiredView(step.requiredView === 'BACK' ? 'FRONT' : step.requiredView);
     setReadinessResult(null);
     lastReadinessRef.current = null;
     

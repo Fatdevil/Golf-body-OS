@@ -65,6 +65,49 @@ export function computeTransverseTurn(
 }
 
 /**
+ * Normalizes an angle difference (curr - addr) into [-180, 180] degrees.
+ */
+export function angleDelta(curr: number, addr: number): number {
+  let diff = (curr - addr) % 360;
+  if (diff > 180) diff -= 360;
+  if (diff < -180) diff += 360;
+  return diff;
+}
+
+/**
+ * Computes relative transverse shoulder turn (degrees) of a frame against address baseline.
+ * Handles MediaPipe camera plane orientation and handedness.
+ * Positive = turned away from target (backswing for right-handed golfer).
+ */
+export function computeRelativeTurn(
+  frame: PoseFrame,
+  addressFrame: PoseFrame,
+  isRightHanded = true
+): number {
+  const ls = getLandmark(frame, LandmarkId.LEFT_SHOULDER);
+  const rs = getLandmark(frame, LandmarkId.RIGHT_SHOULDER);
+  const addrLS = getLandmark(addressFrame, LandmarkId.LEFT_SHOULDER);
+  const addrRS = getLandmark(addressFrame, LandmarkId.RIGHT_SHOULDER);
+
+  if (!ls || !rs || !addrLS || !addrRS) return 0;
+
+  const addrAngle = computeTransverseTurn(addrLS, addrRS, true);
+  const currAngle = computeTransverseTurn(ls, rs, true);
+
+  let deg = angleDelta(currAngle, addrAngle);
+
+  // In standard MediaPipe Face-On view (golfer facing camera), right shoulder is at smaller X than left shoulder (addrDx < 0).
+  // In camera coordinates, clockwise backswing rotation yields a negative diff,
+  // so invert to ensure backswing is positive for right-handed golfers.
+  const addrDx = addrRS.x - addrLS.x;
+  if (addrDx < 0) {
+    deg = -deg;
+  }
+
+  return isRightHanded ? deg : -deg;
+}
+
+/**
  * Computes spine inclination from vertical (degrees).
  * In BODY_METRIC coordinates (Y points UP):
  * Vector from hip center to shoulder center vs vertical (0, 1).
@@ -184,14 +227,6 @@ export function extractPhaseKinematics(
   const addrRS = getLandmark(addressFrame, LandmarkId.RIGHT_SHOULDER);
   const addrLH = getLandmark(addressFrame, LandmarkId.LEFT_HIP);
   const addrRH = getLandmark(addressFrame, LandmarkId.RIGHT_HIP);
-
-  // Helper to normalize angle difference into [-180, 180]
-  const angleDelta = (curr: number, addr: number) => {
-    let diff = (curr - addr) % 360;
-    if (diff > 180) diff -= 360;
-    if (diff < -180) diff += 360;
-    return diff;
-  };
 
   // 1. Shoulder & Pelvis Turn (Calibrated relative to address baseline)
   let shoulderTurn = 0;

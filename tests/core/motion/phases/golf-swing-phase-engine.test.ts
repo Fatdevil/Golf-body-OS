@@ -485,6 +485,44 @@ describe('GolfSwingPhaseEngine', () => {
     expect(result.phases.P7_IMPACT.confidence).toBeGreaterThan(0.9);
     expect(result.tempo.tempoRatio).toBeGreaterThanOrEqual(2.0);
   });
+
+  it('should maintain strict monotonic ordering without collapsing P6 onto P5 on a 15-frame minimum sequence', () => {
+    // Generate an exact 15-frame minimum sequence (downsampled from 240fps)
+    const allFrames = generate240FpsSwingSequence(480);
+    const step = Math.floor(allFrames.length / 15);
+    const tightFrames = Array.from({ length: 15 }, (_, idx) => ({
+      ...allFrames[idx * step],
+      timestampMs: idx * 33.3
+    }));
+
+    const result = engine.analyzeSequence(tightFrames);
+    const indices = ORDERED_SWING_PHASES.map(p => result.phases[p].frameIndex);
+
+    // Verify all 10 phases have distinct, strictly increasing indices
+    for (let i = 1; i < indices.length; i++) {
+      expect(indices[i]).toBeGreaterThan(indices[i - 1]);
+    }
+
+    // Explicitly check subphases do not collapse onto predecessor
+    expect(result.phases.P6_DELIVERY.frameIndex).toBeGreaterThan(result.phases.P5_SHALLOW.frameIndex);
+    expect(result.phases.P8_RELEASE.frameIndex).toBeGreaterThan(result.phases.P7_IMPACT.frameIndex);
+    expect(result.phases.P9_REHINGE.frameIndex).toBeGreaterThan(result.phases.P8_RELEASE.frameIndex);
+  });
+
+  it('should preserve anchor positions (P4 Top, P7 Impact) without distortion when subphases fit inside intervals', () => {
+    const frames = generate240FpsSwingSequence(480);
+    const result = engine.analyzeSequence(frames);
+
+    const p4 = result.phases.P4_TOP.frameIndex;
+    const p5 = result.phases.P5_SHALLOW.frameIndex;
+    const p6 = result.phases.P6_DELIVERY.frameIndex;
+    const p7 = result.phases.P7_IMPACT.frameIndex;
+
+    // Delivery and shallowing must be strictly sandwiched between Top and Impact
+    expect(p5).toBeGreaterThan(p4);
+    expect(p6).toBeGreaterThan(p5);
+    expect(p7).toBeGreaterThan(p6);
+  });
 });
 
 

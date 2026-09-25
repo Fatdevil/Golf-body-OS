@@ -10,7 +10,7 @@ import { PoseFrame } from '../types/pose-frame';
 import { CameraViewAngle, SwingPhaseId } from '../types/golf-swing';
 import { CoachingPhraseKey } from './i18n/locales';
 import { generate240FpsSwingSequence } from '../data/sample-240fps-swing';
-import { getLandmark, extractPhaseKinematics, computeTransverseTurn } from '../metrics/golf-swing-metrics';
+import { getLandmark, computeTransverseTurn, angleDelta } from '../metrics/golf-swing-metrics';
 import { mirrorPoseFrame } from '../coordinates/pose-mirror';
 
 export type GhostCheckpointId =
@@ -370,24 +370,15 @@ export function evaluateGhostPoseMatch(
   let measuredShoulderTurn = targetCheckpoint.targetShoulderTurnDeg;
   let measuredHipTurn = targetCheckpoint.targetHipTurnDeg;
 
-  if (viewAngle === 'FACE_ON') {
-    if (playerLS && playerRS) {
-      measuredShoulderTurn = Math.abs(Math.round(computeTransverseTurn(playerLS, playerRS, isRightHanded)));
-    }
-    if (playerLH && playerRH) {
-      measuredHipTurn = Math.abs(Math.round(computeTransverseTurn(playerLH, playerRH, isRightHanded)));
-    }
-  } else {
-    if (playerLS && playerRS && addrLS && addrRS) {
-      const currST = computeTransverseTurn(playerLS, playerRS, isRightHanded);
-      const addrST = computeTransverseTurn(addrLS, addrRS, isRightHanded);
-      measuredShoulderTurn = Math.abs(Math.round(currST - addrST));
-    }
-    if (playerLH && playerRH && addrLH && addrRH) {
-      const currHT = computeTransverseTurn(playerLH, playerRH, isRightHanded);
-      const addrHT = computeTransverseTurn(addrLH, addrRH, isRightHanded);
-      measuredHipTurn = Math.abs(Math.round(currHT - addrHT));
-    }
+  if (playerLS && playerRS && addrLS && addrRS) {
+    const currST = computeTransverseTurn(playerLS, playerRS, isRightHanded);
+    const addrST = computeTransverseTurn(addrLS, addrRS, isRightHanded);
+    measuredShoulderTurn = Math.abs(Math.round(angleDelta(currST, addrST)));
+  }
+  if (playerLH && playerRH && addrLH && addrRH) {
+    const currHT = computeTransverseTurn(playerLH, playerRH, isRightHanded);
+    const addrHT = computeTransverseTurn(addrLH, addrRH, isRightHanded);
+    measuredHipTurn = Math.abs(Math.round(angleDelta(currHT, addrHT)));
   }
 
   const matchScore = Math.min(100, Math.max(0, Math.round(landmarkScore)));

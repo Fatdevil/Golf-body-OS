@@ -3,7 +3,9 @@ import {
   computeSpineInclination,
   detectSwingFaults,
   calculateSwingTempo,
-  extractPhaseKinematics
+  extractPhaseKinematics,
+  angleDelta,
+  computeRelativeTurn
 } from '../../../src/core/metrics/golf-swing-metrics';
 import { generate240FpsSwingSequence } from '../../../src/core/data/sample-240fps-swing';
 import { GolfSwingPhaseEngine } from '../../../src/core/motion/phases/golf-swing-phase-engine';
@@ -214,6 +216,32 @@ describe('GolfSwingMetrics', () => {
     expect(fallbackKinematics.shoulderTurn).toBeGreaterThan(60);
     expect(fallbackKinematics.pelvisTurn).toBeGreaterThan(25);
     expect(fallbackKinematics.xFactor).toBeGreaterThan(20);
+  });
+
+  describe('angleDelta', () => {
+    it('should correctly normalize angles within [-180, 180]', () => {
+      expect(angleDelta(30, 0)).toBe(30);
+      expect(angleDelta(0, 30)).toBe(-30);
+      expect(angleDelta(170, -170)).toBe(-20); // 170 - (-170) = 340 -> -20
+      expect(angleDelta(-170, 170)).toBe(20);  // -170 - 170 = -340 -> 20
+      expect(angleDelta(10, 10)).toBe(0);
+    });
+  });
+
+  describe('computeRelativeTurn', () => {
+    it('should return 0 at address baseline', () => {
+      const frames = generate240FpsSwingSequence(50);
+      const turn = computeRelativeTurn(frames[0], frames[0], true);
+      expect(turn).toBe(0);
+    });
+
+    it('should compute positive backswing turn for right-handed golfer in FACE_ON', () => {
+      const frames = generate240FpsSwingSequence(480, 'OPTIMAL', 'FACE_ON');
+      const addressFrame = frames[40];
+      const topFrame = frames[230]; // P4 Top
+      const turn = computeRelativeTurn(topFrame, addressFrame, true);
+      expect(turn).toBeGreaterThan(70);
+    });
   });
 });
 

@@ -111,6 +111,34 @@ describe('Ghost Trainer Engine (P1-P10)', () => {
     expect(result.statusMessageSv).toContain('Rotera bröstkorgen');
   });
 
+  it('should measure 0° shoulder and hip turn at P1_ADDRESS in FACE_ON relative to address baseline', () => {
+    const foSeq = generate240FpsSwingSequence(480, 'OPTIMAL', 'FACE_ON');
+    const addressFrame = foSeq[40];
+    const p1Cp = GHOST_CHECKPOINTS.find(c => c.id === 'P1_ADDRESS')!;
+
+    const result = evaluateGhostPoseMatch(addressFrame, p1Cp, addressFrame, 'FACE_ON', true, false);
+
+    expect(result.checkpointId).toBe('P1_ADDRESS');
+    expect(result.shoulderTurnDeg).toBe(0);
+    expect(result.hipTurnDeg).toBe(0);
+    expect(result.targetShoulderTurnDeg).toBe(0);
+    expect(result.targetHipTurnDeg).toBe(0);
+  });
+
+  it('should measure shoulder turn at P4 in FACE_ON consistent with baseline subtraction', () => {
+    const foSeq = generate240FpsSwingSequence(480, 'OPTIMAL', 'FACE_ON');
+    const addressFrame = foSeq[40];
+    const topFrame = foSeq[230];
+    const p4Cp = GHOST_CHECKPOINTS.find(c => c.id === 'P4_TOP_OF_BACKSWING')!;
+
+    const result = evaluateGhostPoseMatch(topFrame, p4Cp, addressFrame, 'FACE_ON', true, false);
+
+    expect(result.checkpointId).toBe('P4_TOP_OF_BACKSWING');
+    // At P4, shoulder rotation should be substantial (> 70°)
+    expect(result.shoulderTurnDeg).toBeGreaterThan(70);
+    expect(result.hipTurnDeg).toBeGreaterThan(20);
+  });
+
   it('should provide complete translations in English and Swedish for all ghost cues', () => {
     for (const cp of GHOST_CHECKPOINTS) {
       const enText = getPhrase(cp.cueKey, 'en-US');

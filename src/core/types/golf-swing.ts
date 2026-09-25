@@ -210,4 +210,5 @@ export interface GolfSwingAnalysisResult {
   faults: SwingFault[];
   correlations: BodySwingCorrelation[];
   overallSwingScore: number;    // 0 - 100
+  quality?: import('../quality/types').QualityCheckResult;
 }
