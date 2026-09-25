@@ -6,6 +6,7 @@ export { type Point2D } from './coordinate-transform';
 export { type Vector3 } from './coordinate-transform';
 export { type TransformParams } from './coordinate-transform';
 export { calculateAspectFillTransform } from './coordinate-transform';
+export { calculateAspectFitTransform } from './coordinate-transform';
 export { normalizedToPreview } from './coordinate-transform';
 export { previewToNormalized } from './coordinate-transform';
 export { rotateByGravity } from './coordinate-transform';

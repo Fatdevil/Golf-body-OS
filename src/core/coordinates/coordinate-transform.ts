@@ -65,6 +65,30 @@ export function calculateAspectFillTransform(
 }
 
 /**
+ * Calculates the aspect-fit ("contain") scale and offsets: the whole image is
+ * visible and letterboxed/pillarboxed inside the view (expo-video's default
+ * contentFit="contain").
+ * @param imageWidth Width of the image.
+ * @param imageHeight Height of the image.
+ * @param viewWidth Width of the view.
+ * @param viewHeight Height of the view.
+ * @returns Object containing scale, offsetX, and offsetY.
+ */
+export function calculateAspectFitTransform(
+  imageWidth: number,
+  imageHeight: number,
+  viewWidth: number,
+  viewHeight: number
+): { scale: number; offsetX: number; offsetY: number } {
+  const scale = Math.min(viewWidth / imageWidth, viewHeight / imageHeight);
+  return {
+    scale,
+    offsetX: (viewWidth - imageWidth * scale) / 2,
+    offsetY: (viewHeight - imageHeight * scale) / 2,
+  };
+}
+
+/**
  * Maps MediaPipe [0,1] coords to screen pixel coords, accounting for aspect-fill scaling, offset, and mirroring.
  * @param point Normalized point [0,1].
  * @param params Transform parameters.
