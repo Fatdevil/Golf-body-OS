@@ -11,7 +11,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
-import { Camera, useCameraDevice, useCameraPermission, useFrameOutput } from 'react-native-vision-camera';
+import { Camera, useCameraDevice, useCameraPermission, useFrameOutput, type Frame } from 'react-native-vision-camera';
 import { scheduleOnRN } from 'react-native-worklets';
 import { useScreening } from '../../context/ScreeningContext';
 import { StoredScreeningSession } from '../../storage/screening-repository';
@@ -31,6 +31,14 @@ import { interiorAngle } from '../../core/metrics/angle-calculator';
 
 /** Long side (px) of the upright RGB image sent to MediaPipe. */
 const POSE_INPUT_MAX_SIDE = 480;
+/**
+ * Module-level constant: useFrameOutput memoizes the camera output on
+ * targetResolution by identity, so an inline object would recreate the
+ * output on every render.
+ */
+const FRAME_TARGET_RESOLUTION = { width: 960, height: 720 };
+/** Minimum interval between on-screen angle updates (re-renders). */
+const ANGLE_READOUT_INTERVAL_MS = 150;
 
 export default function ActiveScreeningScreen() {
   const { activeTestType, language, cancelScreening, finishScreening } = useScreening();
@@ -323,22 +331,30 @@ export default function ActiveScreeningScreen() {
    * convertNativeResultToPoseFrame, image-space landmarks). Routes the frame to
    * the active test and updates the on-screen readout.
    */
+  const lastReadoutMsRef = useRef(0);
   const handlePoseFrame = useCallback((frame: PoseFrame) => {
     const stage = currentStageRef.current;
+    // Throttle the on-screen readout: every setState re-renders the screen.
+    const updateReadout = frame.timestampMs - lastReadoutMsRef.current >= ANGLE_READOUT_INTERVAL_MS;
+    if (updateReadout) lastReadoutMsRef.current = frame.timestampMs;
     if (stage === 'HINGE') {
       liveSessionRef.current.addHingeFrame(frame);
       liveHingeEngineRef.current?.processFrame(frame);
-      const lms = toIsotropicLandmarks(frame.landmarks, frame.width, frame.height);
-      const get = (id: LandmarkId) => lms.find((l) => l.id === id);
-      const sh = get(LandmarkId.LEFT_SHOULDER), hip = get(LandmarkId.LEFT_HIP);
-      const kn = get(LandmarkId.LEFT_KNEE), an = get(LandmarkId.LEFT_ANKLE);
-      if (sh && hip && kn) setCurrentAngle(Math.round(interiorAngle(sh, hip, kn)));
-      if (hip && kn && an) setKneeAngle(Math.round(interiorAngle(hip, kn, an)));
+      if (updateReadout) {
+        const lms = toIsotropicLandmarks(frame.landmarks, frame.width, frame.height);
+        const get = (id: LandmarkId) => lms.find((l) => l.id === id);
+        const sh = get(LandmarkId.LEFT_SHOULDER), hip = get(LandmarkId.LEFT_HIP);
+        const kn = get(LandmarkId.LEFT_KNEE), an = get(LandmarkId.LEFT_ANKLE);
+        if (sh && hip && kn) setCurrentAngle(Math.round(interiorAngle(sh, hip, kn)));
+        if (hip && kn && an) setKneeAngle(Math.round(interiorAngle(hip, kn, an)));
+      }
     } else if (stage === 'ROTATION') {
       liveRotationEngineRef.current?.processFrame(frame);
-      const samples = liveRotationEngineRef.current?.getSamples() ?? [];
-      const last = samples[samples.length - 1];
-      if (last) setCurrentAngle(Math.round(last.isolatedThoracic));
+      if (updateReadout) {
+        const samples = liveRotationEngineRef.current?.getSamples() ?? [];
+        const last = samples[samples.length - 1];
+        if (last) setCurrentAngle(Math.round(last.isolatedThoracic));
+      }
     }
   }, []);
 
@@ -376,29 +392,33 @@ export default function ActiveScreeningScreen() {
     });
   }, []);
 
+  // Stable worklet identity: re-registered only when onRgbImage changes.
+  const onFrame = useCallback((frame: Frame) => {
+    'worklet';
+    try {
+      if (frame.isValid && frame.hasPixelBuffer && isSupportedRgbPixelFormat(frame.pixelFormat)) {
+        const img = convertFrameToPackedRgb(
+          frame.getPixelBuffer(), frame.width, frame.height, frame.bytesPerRow,
+          frame.pixelFormat, frame.orientation, frame.isMirrored, POSE_INPUT_MAX_SIDE,
+        );
+        scheduleOnRN(
+          onRgbImage, img.data, img.width, img.height, frame.timestamp,
+          frame.pixelFormat, frame.orientation, frame.isMirrored, frame.width, frame.height,
+        );
+      }
+    } finally {
+      frame.dispose();
+    }
+  }, [onRgbImage]);
+
   const frameOutput = useFrameOutput({
     pixelFormat: 'rgb',
-    targetResolution: { width: 960, height: 720 },
+    targetResolution: FRAME_TARGET_RESOLUTION,
     enablePreviewSizedOutputBuffers: true,
     dropFramesWhileBusy: true,
-    onFrame(frame) {
-      'worklet';
-      try {
-        if (frame.isValid && frame.hasPixelBuffer && isSupportedRgbPixelFormat(frame.pixelFormat)) {
-          const img = convertFrameToPackedRgb(
-            frame.getPixelBuffer(), frame.width, frame.height, frame.bytesPerRow,
-            frame.pixelFormat, frame.orientation, frame.isMirrored, POSE_INPUT_MAX_SIDE,
-          );
-          scheduleOnRN(
-            onRgbImage, img.data, img.width, img.height, frame.timestamp,
-            frame.pixelFormat, frame.orientation, frame.isMirrored, frame.width, frame.height,
-          );
-        }
-      } finally {
-        frame.dispose();
-      }
-    },
+    onFrame,
   });
+
 
   // Automated Simulation Runner for testing and demo
   const runSimulation = () => {

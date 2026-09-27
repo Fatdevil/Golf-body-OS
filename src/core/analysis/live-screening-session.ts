@@ -45,6 +45,7 @@ export interface LiveRotationMeasurement {
 }
 
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+const round1 = (x: number) => Math.round(x * 10) / 10;
 
 /**
  * Native frames arrive in image space (y down). The hip hinge metrics work in
@@ -106,8 +107,9 @@ export class LiveScreeningSession {
       if (!compensations.includes(c.type)) compensations.push(c.type);
     }
     return {
-      hingeAngle: mean(reps.map((r) => r.hipHingeAngle2D.value)),
-      kneeAngle: mean(reps.map((r) => r.kneeAngleAtEndpoint.value)),
+      // One decimal: stored in history and shown as-is in the UI.
+      hingeAngle: round1(mean(reps.map((r) => r.hipHingeAngle2D.value))),
+      kneeAngle: round1(mean(reps.map((r) => r.kneeAngleAtEndpoint.value))),
       compensations,
       repCount: reps.length,
     };

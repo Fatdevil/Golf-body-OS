@@ -76,6 +76,9 @@ describe('LiveScreeningSession', () => {
     expect(m!.repCount).toBe(3);
     expect(m!.hingeAngle).toBeCloseTo(100, 0);
     expect(m!.kneeAngle).toBeCloseTo(160, 0);
+    // stored and displayed as-is: at most one decimal
+    expect(Math.round(m!.hingeAngle * 10) / 10).toBe(m!.hingeAngle);
+    expect(Math.round(m!.kneeAngle * 10) / 10).toBe(m!.kneeAngle);
     // a correct 160° knee is not a knee-dominant squat
     expect(m!.compensations).not.toContain('EXCESSIVE_KNEE_BEND');
   });
