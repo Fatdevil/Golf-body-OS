@@ -189,7 +189,9 @@ export default function ActiveScreeningScreen() {
     const hasRotation = activeTestType !== 'HIP_HINGE' && rotationMetricsRef.current.leftDeg !== undefined;
 
     // 1. Build DeviceValidationReport for Hip Hinge if performed
+    // LiveScreeningSession.finalizeHinge only yields angles for a SUCCESS analysis.
     const hingeReport: any = hasHinge ? {
+      status: 'SUCCESS',
       measurement: {
         metrics: [
           { id: 'HIP_HINGE_ANGLE_2D', value: hingeMetricsRef.current.hingeAngle },

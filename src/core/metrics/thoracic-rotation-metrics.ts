@@ -10,6 +10,7 @@
  */
 
 import { Landmark, LandmarkId } from '../types/landmark';
+import { DEFAULT_QUALITY_THRESHOLDS } from '../quality/quality-thresholds';
 
 export const VERSION = 'THORACIC_ROTATION_METRICS_V1';
 
@@ -65,15 +66,25 @@ export function calculateTransverseRotation(
 
 /**
  * Computes frontal plane (XY) lateral tilt / dip of shoulders.
- * Neutral horizontal = 0°.
+ * Neutral horizontal = 0° regardless of which side of the image each
+ * shoulder is on (facing the camera, facing away, or mirrored preview).
+ * Positive when the right shoulder is lower (image y points down).
  */
 export function calculateFrontalTilt(
   leftShoulder: { x: number; y: number },
   rightShoulder: { x: number; y: number }
 ): number {
-  const dx = rightShoulder.x - leftShoulder.x;
+  const dx = Math.abs(rightShoulder.x - leftShoulder.x);
   const dy = rightShoulder.y - leftShoulder.y;
   return toDegrees(Math.atan2(dy, dx));
+}
+
+function isTracked(lm: Landmark): boolean {
+  const conf =
+    lm.visibility !== undefined && lm.presence !== undefined
+      ? (lm.visibility + lm.presence) / 2
+      : lm.visibility ?? lm.presence ?? 1.0;
+  return Number.isFinite(conf) && conf >= DEFAULT_QUALITY_THRESHOLDS.minLandmarkConfidence;
 }
 
 /**
@@ -90,6 +101,10 @@ export function extractRotationSample(
   const rightHip = landmarks.find((l) => l.id === LandmarkId.RIGHT_HIP);
 
   if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) {
+    return null;
+  }
+  // Never measure rotation from landmarks the model could not see.
+  if (![leftShoulder, rightShoulder, leftHip, rightHip].every(isTracked)) {
     return null;
   }
 

@@ -80,7 +80,13 @@ export class ConfidenceEngine {
       flags.push('UNSTABLE_MOVEMENT');
     }
 
-    const isAbstained = overall < this.config.abstentionThreshold;
+    // Non-finite inputs are scored as 0 by clamp(); never trust such a result.
+    const hasInvalidInput = Object.values(input).some((v) => typeof v !== 'number' || !Number.isFinite(v));
+    if (hasInvalidInput) {
+      flags.push('INVALID_INPUT');
+    }
+
+    const isAbstained = hasInvalidInput || overall < this.config.abstentionThreshold;
 
     return {
       overall: this.clamp(overall),
@@ -92,6 +98,7 @@ export class ConfidenceEngine {
   }
 
   private clamp(value: number): number {
+    if (!Number.isFinite(value)) return 0;
     return Math.max(0, Math.min(1, value));
   }
 }

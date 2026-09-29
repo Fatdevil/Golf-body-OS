@@ -31,6 +31,8 @@ interface ScreeningContextValue {
   refreshSessions: () => Promise<void>;
   saveScreeningSession: (session: StoredScreeningSession) => Promise<{ success: boolean; error?: string }>;
   clearHistory: () => Promise<void>;
+  /** Last persistence failure (save or clear), shown to the user; null when OK. */
+  storageError: string | null;
 
   // Active screening workflow
   activeTestType: ScreeningTestType | null;
@@ -53,6 +55,7 @@ export function ScreeningProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<StoredScreeningSession[]>([]);
   const [latestSession, setLatestSession] = useState<StoredScreeningSession | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [storageError, setStorageError] = useState<string | null>(null);
 
   // Active screening state
   const [activeTestType, setActiveTestType] = useState<ScreeningTestType | null>(null);
@@ -79,18 +82,26 @@ export function ScreeningProvider({ children }: { children: ReactNode }) {
     if (!res.success) {
       console.error('[ScreeningContext] Failed to persist session:', res.error);
     }
+    setStorageError(res.success ? null : (res.error ?? 'unknown error'));
     await refreshSessions();
     return res;
   }, [refreshSessions]);
 
   const clearHistory = useCallback(async () => {
-    await screeningRepository.clearHistory();
+    try {
+      await screeningRepository.clearHistory();
+      setStorageError(null);
+    } catch (err) {
+      console.warn('[ScreeningContext] Could not clear history:', err);
+      setStorageError(err instanceof Error ? err.message : String(err));
+    }
     await refreshSessions();
   }, [refreshSessions]);
 
   const startScreening = useCallback((testType: ScreeningTestType) => {
     setActiveTestType(testType);
     setCurrentResult(null);
+    setStorageError(null);
     setActiveScreeningStep('RUNNER');
     setActiveTab('SCREENING');
   }, []);
@@ -107,6 +118,7 @@ export function ScreeningProvider({ children }: { children: ReactNode }) {
   const cancelScreening = useCallback(() => {
     setActiveTestType(null);
     setCurrentResult(null);
+    setStorageError(null);
     setActiveScreeningStep('SELECT');
   }, []);
 
@@ -121,6 +133,7 @@ export function ScreeningProvider({ children }: { children: ReactNode }) {
     refreshSessions,
     saveScreeningSession,
     clearHistory,
+    storageError,
     activeTestType,
     setActiveTestType,
     activeScreeningStep,

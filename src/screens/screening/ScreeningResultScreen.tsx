@@ -13,7 +13,7 @@ import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useScreening } from '../../context/ScreeningContext';
 
 export default function ScreeningResultScreen() {
-  const { currentResult, setActiveTab, cancelScreening } = useScreening();
+  const { currentResult, setActiveTab, cancelScreening, storageError } = useScreening();
 
   if (!currentResult) {
     return (
@@ -49,6 +49,15 @@ export default function ScreeningResultScreen() {
         <View style={styles.simulationBanner}>
           <Text style={styles.simulationBannerText}>
             ⚠️ SIMULERAT RESULTAT — Dessa värden är genererade utan kamera och speglar inte din kropp.
+          </Text>
+        </View>
+      )}
+
+      {/* Persistence Failure Banner */}
+      {storageError !== null && (
+        <View style={styles.simulationBanner}>
+          <Text style={styles.simulationBannerText}>
+            ⚠️ Resultatet kunde inte sparas i historiken. Det försvinner när appen stängs.
           </Text>
         </View>
       )}
