@@ -5,7 +5,7 @@
  * MediaPipe in VIDEO mode through the native module and emits PoseFrames.
  *
  * - Timestamps: VisionCamera's Frame.timestamp unit is platform dependent;
- *   the unit is inferred from the first frame interval and converted to ms.
+ *   the unit is inferred from a consecutive frame interval and converted to ms.
  *   PoseFrame.timestampMs keeps real elapsed time (velocities depend on it);
  *   MediaPipe gets a strictly increasing clock (VIDEO mode requirement).
  * - Back-pressure: while one detection is in flight, new images are dropped
@@ -61,29 +61,38 @@ export interface LivePoseProcessorStats {
 
 /**
  * Converts raw frame timestamps (unknown unit) to milliseconds relative to
- * the first frame. The unit is inferred from the first positive interval,
- * assuming a camera rate between 5 and 240 fps.
+ * the first frame. The unit is inferred from the first plausible interval
+ * between consecutive frames, assuming a camera rate between 5 and 240 fps,
+ * so a slow start (e.g. a 250 ms warm-up gap) does not block inference.
+ * Duplicate or backward timestamps return null: output is strictly increasing.
  */
 export function createTimestampNormalizer(): (raw: number) => number | null {
   let first: number | null = null;
+  let prev: number | null = null;
   let toMs: number | null = null;
+  let lastMs = 0;
 
   return (raw: number) => {
-    if (first === null) {
+    if (first === null || prev === null) {
       first = raw;
+      prev = raw;
       return 0;
     }
-    const delta = raw - first;
+    if (raw <= prev) return null; // duplicate or backward source time
+    const step = raw - prev;
+    prev = raw;
     if (toMs === null) {
-      if (delta <= 0) return null;
       // Frame interval ≈ 4–200 ms. Pick the unit that puts it in that range.
-      if (delta >= 0.004 && delta <= 0.2) toMs = 1000;          // seconds
-      else if (delta >= 4 && delta <= 200) toMs = 1;            // milliseconds
-      else if (delta >= 4e3 && delta <= 2e5) toMs = 1e-3;       // microseconds
-      else if (delta >= 4e6 && delta <= 2e8) toMs = 1e-6;       // nanoseconds
+      if (step >= 0.004 && step <= 0.2) toMs = 1000;          // seconds
+      else if (step >= 4 && step <= 200) toMs = 1;            // milliseconds
+      else if (step >= 4e3 && step <= 2e5) toMs = 1e-3;       // microseconds
+      else if (step >= 4e6 && step <= 2e8) toMs = 1e-6;       // nanoseconds
       else return null; // cannot tell yet (e.g. a dropped burst) — wait for another frame
     }
-    return delta * toMs;
+    const ms = (raw - first) * toMs;
+    if (ms <= lastMs) return null;
+    lastMs = ms;
+    return ms;
   };
 }
 

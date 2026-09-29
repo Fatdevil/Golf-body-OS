@@ -98,6 +98,9 @@ export class LiveScreeningSession {
       .setAnalysisMode('LIVE', fps, fps)
       .setDecodedFrames([]);
     const result = new TemporalPipeline({ protocol: HIP_HINGE_V1 }).process(this.hingeFrames, trace);
+    // Only a SUCCESS analysis is a measurement; FAILED/ABSTAINED may still
+    // carry residual repetitions that must not be shown or scored.
+    if (result.status !== 'SUCCESS') return null;
     const reps = result.repetitions;
     if (reps.length === 0) return null;
 

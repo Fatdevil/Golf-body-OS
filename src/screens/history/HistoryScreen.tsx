@@ -14,7 +14,7 @@ import { useScreening } from '../../context/ScreeningContext';
 import { StoredScreeningSession } from '../../storage/screening-repository';
 
 export default function HistoryScreen() {
-  const { sessions, clearHistory, startScreening, setCurrentResult, setActiveScreeningStep, setActiveTab } = useScreening();
+  const { sessions, clearHistory, storageError, startScreening, setCurrentResult, setActiveScreeningStep, setActiveTab } = useScreening();
 
   const handleOpenSession = (session: StoredScreeningSession) => {
     setCurrentResult(session);
@@ -55,6 +55,9 @@ export default function HistoryScreen() {
         <Text style={styles.subtitle}>
           Se hur din rörlighet och dina förutsättningar förändras över tid.
         </Text>
+        {storageError !== null && (
+          <Text style={styles.errorText}>⚠️ Historiken kunde inte uppdateras: {storageError}</Text>
+        )}
       </View>
 
       {/* Empty State */}
@@ -82,8 +85,15 @@ export default function HistoryScreen() {
             >
               <View style={styles.sessionMain}>
                 <View style={styles.sessionHeaderRow}>
-                  <View style={styles.testBadge}>
-                    <Text style={styles.testBadgeText}>{getTestLabel(session.testType)}</Text>
+                  <View style={styles.badgeRow}>
+                    <View style={styles.testBadge}>
+                      <Text style={styles.testBadgeText}>{getTestLabel(session.testType)}</Text>
+                    </View>
+                    {session.isSimulated && (
+                      <View style={styles.simulatedBadge}>
+                        <Text style={styles.simulatedBadgeText}>SIMULERAT</Text>
+                      </View>
+                    )}
                   </View>
                   <Text style={styles.sessionDate}>{formatDate(session.timestampMs)}</Text>
                 </View>
@@ -221,6 +231,27 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  simulatedBadge: {
+    backgroundColor: '#78350F',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  simulatedBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FDE68A',
+  },
+  errorText: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#F87171',
   },
   testBadge: {
     backgroundColor: '#18181B',

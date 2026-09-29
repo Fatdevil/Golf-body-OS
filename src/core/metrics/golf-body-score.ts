@@ -98,7 +98,9 @@ export function calculateGolfBodyScore(
   const kneeAngles = hingeMetrics.filter(m => m.id === 'KNEE_ANGLE_AT_ENDPOINT').map(m => m.value).filter(isFiniteNumber);
   // Only score what was actually measured. (Missing angles used to default to
   // 85°/155°, i.e. an ideal hinge worth 50/50 without any measurement.)
-  const hingeMeasured = hingeAngles.length > 0 && kneeAngles.length > 0;
+  // A FAILED/ABSTAINED/CANCELLED analysis is never a measurement, even if it
+  // carries residual metric values.
+  const hingeMeasured = hingeReport?.status === 'SUCCESS' && hingeAngles.length > 0 && kneeAngles.length > 0;
   const thoracicMeasured = rotationResult !== null && rotationResult !== undefined;
 
   if (hingeReport && hingeReport.measurement && hingeMeasured) {

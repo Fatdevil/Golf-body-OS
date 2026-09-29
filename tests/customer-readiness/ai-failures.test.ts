@@ -22,13 +22,11 @@ function response(text: string) {
 test.each([429, 500, 503])(
   "A01 HTTP %s falls back with explicit local source",
   async (status) => {
-    global.fetch = jest
-      .fn()
-      .mockResolvedValue({
-        ok: false,
-        status,
-        text: async () => "simulated error",
-      });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status,
+      text: async () => "simulated error",
+    });
     expect((await service().generateAnalysis(report(), [])).engineUsed).toBe(
       "LOCAL_EXPERT_SYNTHESIZER",
     );
@@ -53,18 +51,16 @@ test("A04 valid JSON missing required result fields must use local fallback", as
   );
 });
 test("A05 wrong field types must not escape as a remote analysis", async () => {
-  global.fetch = jest
-    .fn()
-    .mockResolvedValue(
-      response(
-        JSON.stringify({
-          headline: 42,
-          summary: [],
-          exercises: "invalid",
-          golfTranslation: null,
-        }),
-      ),
-    );
+  global.fetch = jest.fn().mockResolvedValue(
+    response(
+      JSON.stringify({
+        headline: 42,
+        summary: [],
+        exercises: "invalid",
+        golfTranslation: null,
+      }),
+    ),
+  );
   expect((await service().generateAnalysis(report(), [])).engineUsed).toBe(
     "LOCAL_EXPERT_SYNTHESIZER",
   );
@@ -89,4 +85,31 @@ test("A06 a stalled request settles within a proposed 30-second customer timeout
   release(response("{invalid"));
   await pending;
   expect(settledByDeadline).toBe(true);
+});
+test("A07 a well-formed response is used as the remote analysis", async () => {
+  const exercise = {
+    name: "Hip hinge drill",
+    target: "Hip hinge",
+    prescription: "2 x 8",
+    instructions: "Push hips back",
+    whyThisHelps: "Keeps posture",
+  };
+  global.fetch = jest.fn().mockResolvedValue(
+    response(
+      JSON.stringify({
+        headline: "Good hinge",
+        summary: "Solid depth",
+        golfTranslation: {
+          title: "Posture",
+          primaryFault: "Early Extension",
+          explanation: "Hold angle",
+        },
+        exercises: [exercise],
+        proTip: "Feel the hips",
+      }),
+    ),
+  );
+  const analysis = await service().generateAnalysis(report(), []);
+  expect(analysis.engineUsed).toBe("GEMINI_2_5_FLASH");
+  expect(analysis.exercises).toEqual([exercise]);
 });

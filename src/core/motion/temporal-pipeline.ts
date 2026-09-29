@@ -284,6 +284,14 @@ export class TemporalPipeline {
 
     // 8. compute confidence
     const landmarkVisibility = validFramesCount > 0 ? totalVisSum / validFramesCount : 0;
+    // 1 - coefficient of variation of hinge ROM (flexion from upright) across reps.
+    let repetitionConsistency = 1.0;
+    const roms = reps.map(r => 180 - r.hipHingeAngle2D.value).filter(v => Number.isFinite(v) && v > 0);
+    if (roms.length >= 2) {
+      const meanRom = roms.reduce((a, b) => a + b, 0) / roms.length;
+      const variance = roms.reduce((a, b) => a + (b - meanRom) ** 2, 0) / roms.length;
+      repetitionConsistency = Math.max(0, 1 - Math.sqrt(variance) / meanRom);
+    }
     const confidenceInput = {
       landmarkVisibility,
       landmarkPresence: 1.0,
@@ -292,7 +300,7 @@ export class TemporalPipeline {
       movementStability: 1.0,
       protocolCompliance: 1.0,
       endpointQuality: 1.0,
-      repetitionConsistency: 1.0
+      repetitionConsistency
     };
     const confidence = confidenceEngine.calculate(confidenceInput);
 

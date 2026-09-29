@@ -1,11 +1,11 @@
 /** Acceptance tests: failures are unresolved product defects, not expected successes. */
 import { LiveScreeningSession } from "../../src/core/analysis/live-screening-session";
 import { TemporalPipeline } from "../../src/core/motion/temporal-pipeline";
-import { HIP_HINGE_V1 } from "../../src/protocols/hip-hinge-v1";
 import { calculateGolfBodyScore } from "../../src/core/metrics/golf-body-score";
 import { calculateFrontalTilt } from "../../src/core/metrics/thoracic-rotation-metrics";
 import { LiveRotationCoachingEngine } from "../../src/core/coaching/live-rotation-coaching-engine";
 import { ConfidenceEngine } from "../../src/core/confidence/confidence-engine";
+import { LandmarkId } from "../../src/core/types/landmark";
 import { hingeSession, framePx, report } from "./fixtures";
 
 afterEach(() => jest.restoreAllMocks());
@@ -100,12 +100,15 @@ test("M08 reset removes previous measurement data", () => {
   expect(session.hingeFrameCount).toBe(0);
   expect(session.finalizeHinge()).toBeNull();
 });
-test("M09 missing required ankle must not yield a successful hinge analysis", () => {
+test("M09 missing required ankles must not yield a successful hinge analysis", () => {
   const session = new LiveScreeningSession();
   hingeSession(100).forEach((f) =>
     session.addHingeFrame({
       ...f,
-      landmarks: f.landmarks.filter((l) => l.id !== 27),
+      landmarks: f.landmarks.filter(
+        (l) =>
+          l.id !== LandmarkId.LEFT_ANKLE && l.id !== LandmarkId.RIGHT_ANKLE,
+      ),
     }),
   );
   expect(session.finalizeHinge()).toBeNull();

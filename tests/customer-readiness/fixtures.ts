@@ -1,13 +1,13 @@
 /**
- * live-screening-session.test.ts
- * End-to-end: image-space frames (as the native module returns them) from a
- * PORTRAIT phone video → hip hinge measurement with correct angles.
+ * Shared synthetic fixtures for the customer readiness acceptance tests:
+ * image-space hip hinge frames from a PORTRAIT phone video, a device
+ * validation report and a stored screening session.
  */
 
-import { LiveScreeningSession } from "../../src/core/analysis/live-screening-session";
-import { PoseFrame } from "../../src/core/types/pose-frame";
+import type { PoseFrame } from "../../src/core/types/pose-frame";
 import { Landmark, LandmarkId } from "../../src/core/types/landmark";
-import { RotationSample } from "../../src/core/metrics/thoracic-rotation-metrics";
+import type { DeviceValidationReport } from "../../src/validation/device-validation-report";
+import type { StoredScreeningSession } from "../../src/storage/screening-repository";
 
 const W = 1080;
 const H = 1920;
@@ -99,8 +99,6 @@ export function hingeSession(bottomDeg: number): PoseFrame[] {
   return frames;
 }
 
-import type { DeviceValidationReport } from "../../src/validation/device-validation-report";
-import type { StoredScreeningSession } from "../../src/storage/screening-repository";
 export function report(
   status: DeviceValidationReport["status"] = "SUCCESS",
 ): DeviceValidationReport {

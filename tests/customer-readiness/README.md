@@ -2,13 +2,14 @@
 
 Baseline: `409d4200f2f533d96262322ca36a9a99bceb9499`.
 
-This is a **test-only diagnostic branch**. No application implementation changes.
 These are ordinary acceptance tests, not `test.failing`, skipped tests, or assertions
-that treat known defects as correct. **Do not merge as a green release gate yet.**
+that treat known defects as correct. They were written against the baseline above,
+where 21 of 58 cases failed; the product defects they exposed have since been fixed
+and every case now passes. Do not weaken assertions or lower thresholds to pass.
 
 ## Reproduce
 
-Use Node 22.13+ (this run: Node 24.19.0), then from the repository root:
+Use Node 22.13+, then from the repository root:
 
 ```sh
 npm ci
@@ -18,44 +19,33 @@ npx jest tests/customer-readiness --runInBand
 npm run test:coverage -- --runInBand
 ```
 
-The test and coverage commands currently return nonzero by design: the product
-fails the asserted acceptance conditions. Fix production code, then rerun these
-same assertions. Do not lower coverage thresholds or weaken assertions to pass.
+The configured global coverage threshold (80%) was already unmet on the baseline
+and is still unmet; `test:coverage` therefore exits nonzero independently of
+these tests.
 
-## Results
+## Findings and fixes
 
-- Existing tests: **324/324 pass**.
-- New tests: **37 pass, 21 fail, 58 total**.
-- Combined: **361 pass, 21 fail, 382 total**, 53 suites.
-- Lines: 74.68%; branches: 61.07%; functions: 68.52%; statements: 73.26%.
-- Configured global coverage threshold: 80% for all four categories, not met.
-- Exact per-case results: `results-2026-09-29.json` (snapshot, not a live gate).
-
-## Failing acceptance conditions
-
-| ID  | Cases failing | Finding                                                                                                      |
-| --- | ------------: | ------------------------------------------------------------------------------------------------------------ |
-| M01 |             2 | Live measurement accepts FAILED/ABSTAINED pipeline results with residual repetitions.                        |
-| M02 |             2 | Scoring marks a failed/abstained report's hinge pillar as measured.                                          |
-| M03 |             1 | Reversed horizontal shoulder pair reports 180 degrees tilt instead of zero.                                  |
-| M04 |             1 | Live rotation accepts landmarks with visibility/presence 0.01.                                               |
-| M05 |             1 | NaN confidence input does not abstain.                                                                       |
-| M10 |             1 | Nine synthetic reps at substantially different depths still feed repetition consistency 1.0 into confidence. |
-| C01 |             3 | 250ms startup gap prevents recovery for millisecond, microsecond and nanosecond inputs.                      |
-| C05 |             1 | Duplicate/backward source timestamps are emitted as duplicate/backward measurement times.                    |
-| S03 |             1 | Failed overwrite leaves the changed cached score despite persistence failure.                                |
-| S04 |             1 | Failed insert into a full 50-session history loses an old cached entry.                                      |
-| S05 |             1 | Failed deletion resolves normally and is not surfaced to the caller.                                         |
-| S06 |             1 | Structurally corrupt stored records can crash sorting.                                                       |
-| A04 |             1 | Empty JSON object accepted as remote AI result.                                                              |
-| A05 |             1 | Wrong JSON field types accepted as remote AI result.                                                         |
-| A06 |             1 | Stalled AI request exceeds a proposed 30-second customer timeout.                                            |
-| U04 |             1 | Simulated history entry has no visible demo label.                                                           |
-| U05 |             1 | Persistence failure not visible in customer result view.                                                     |
+| ID  | Finding on baseline                                                                    | Fix                                                                                  |
+| --- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| M01 | Live measurement accepted FAILED/ABSTAINED pipeline results with residual repetitions. | `LiveScreeningSession.finalizeHinge` returns a measurement only for `SUCCESS`.       |
+| M02 | Scoring marked a failed/abstained report's hinge pillar as measured.                   | `calculateGolfBodyScore` requires `status === 'SUCCESS'`.                            |
+| M03 | Reversed horizontal shoulder pair reported 180° tilt instead of zero.                  | `calculateFrontalTilt` is independent of which image side each shoulder is on.       |
+| M04 | Live rotation accepted landmarks with visibility/presence 0.01.                        | Rotation samples require `minLandmarkConfidence` on shoulders and hips.              |
+| M05 | NaN confidence input did not abstain.                                                  | Non-finite inputs score 0, are flagged `INVALID_INPUT` and abstain.                  |
+| M10 | Repetition consistency was hard-coded to 1.0.                                          | Computed as 1 − CV of hinge ROM across repetitions.                                  |
+| C01 | A 250 ms startup gap prevented timestamp unit inference forever.                       | Unit is inferred from consecutive frame intervals, not from the first frame.         |
+| C05 | Duplicate/backward source timestamps were emitted.                                     | Normalizer output is strictly increasing; such frames are dropped.                   |
+| S03 | Failed overwrite left the changed score in the cache.                                  | Cache is replaced only after a successful write.                                     |
+| S04 | Failed insert into a full history lost an old cached entry.                            | Same as S03.                                                                         |
+| S05 | Failed deletion was silently swallowed.                                                | `clearHistory` rejects; the context shows the error in history.                      |
+| S06 | Structurally corrupt stored records could crash sorting.                               | Invalid records are dropped on load; missing optional lists get defaults.            |
+| A04 | Empty JSON object accepted as remote AI result.                                        | Gemini responses are validated against `AiCoachAnalysis`; invalid → local fallback.  |
+| A05 | Wrong JSON field types accepted as remote AI result.                                   | Same as A04.                                                                         |
+| A06 | Stalled AI request never settled.                                                      | Gemini requests time out after `AI_REQUEST_TIMEOUT_MS` (30 s) and fall back locally. |
+| U04 | Simulated history entry had no visible demo label.                                     | History shows a `SIMULERAT` badge.                                                   |
+| U05 | Persistence failure was not visible in the result view.                                | Context exposes `storageError`; result view shows a banner.                          |
 
 A06's 30-second limit is a proposed acceptance criterion, not an existing documented SLA.
-S05 specifies rejection for the existing Promise<void> API; an explicit typed failure
-result plus updated callers would be another valid design and require an adjusted test.
 
 ## What the tests actually exercise
 

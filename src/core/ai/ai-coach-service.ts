@@ -18,6 +18,52 @@ import {
 import { ThoracicRotationResult } from '../metrics/thoracic-rotation-metrics';
 import { GolfBodyScoreResult } from '../metrics/golf-body-score';
 
+/** Longest a customer waits for Gemini before the local synthesizer takes over. */
+export const AI_REQUEST_TIMEOUT_MS = 30000;
+
+const isText = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
+
+/**
+ * Validates a parsed Gemini response against the AiCoachAnalysis shape.
+ * Returns null (→ local fallback) when any required field is missing or has
+ * the wrong type, so malformed model output never reaches the UI.
+ */
+function toRemoteAnalysis(parsed: unknown, language: SupportedLanguage): AiCoachAnalysis | null {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const p = parsed as Record<string, unknown>;
+  const gt = p.golfTranslation as Record<string, unknown> | null | undefined;
+  if (!isText(p.headline) || !isText(p.summary) || !isText(p.proTip)) return null;
+  if (!gt || typeof gt !== 'object' || !isText(gt.title) || !isText(gt.primaryFault) || !isText(gt.explanation)) {
+    return null;
+  }
+  if (!Array.isArray(p.exercises) || p.exercises.length === 0) return null;
+  const exercises: CorrectiveExercise[] = [];
+  for (const e of p.exercises as Array<Record<string, unknown> | null>) {
+    if (!e || typeof e !== 'object') return null;
+    if (!isText(e.name) || !isText(e.target) || !isText(e.prescription) || !isText(e.instructions) || !isText(e.whyThisHelps)) {
+      return null;
+    }
+    exercises.push({
+      name: e.name,
+      target: e.target,
+      prescription: e.prescription,
+      instructions: e.instructions,
+      whyThisHelps: e.whyThisHelps,
+    });
+  }
+  return {
+    headline: p.headline,
+    summary: p.summary,
+    repetitionProgression: typeof p.repetitionProgression === 'string' ? p.repetitionProgression : '',
+    golfTranslation: { title: gt.title, primaryFault: gt.primaryFault, explanation: gt.explanation },
+    exercises,
+    proTip: p.proTip,
+    generatedAt: Date.now(),
+    engineUsed: 'GEMINI_2_5_FLASH',
+    language,
+  };
+}
+
 export interface AiCoachConfig {
   apiKey?: string;
   model?: string;
@@ -144,6 +190,34 @@ export class AiCoachService {
     return this.synthesizeLocalChatResponse(latestUserMsg, report, language, rotationResult, score);
   }
 
+  /**
+   * POSTs JSON to Gemini, rejecting after AI_REQUEST_TIMEOUT_MS so a stalled
+   * request falls back to the local synthesizer instead of hanging the UI.
+   */
+  private async postWithTimeout(url: string, body: unknown): Promise<Response> {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller?.abort();
+        reject(new Error(`Gemini request timed out after ${AI_REQUEST_TIMEOUT_MS} ms`));
+      }, AI_REQUEST_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller?.signal,
+        }),
+        timeout,
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private async callGeminiApi(
     report: DeviceValidationReport,
     spokenCues: SpokenCueLogEntry[],
@@ -168,11 +242,7 @@ export class AiCoachService {
       }
     };
 
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    const resp = await this.postWithTimeout(url, body);
 
     if (!resp.ok) {
       const errText = await resp.text();
@@ -183,18 +253,7 @@ export class AiCoachService {
     const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!candidateText) return null;
 
-    const parsed = JSON.parse(candidateText);
-    return {
-      headline: parsed.headline,
-      summary: parsed.summary,
-      repetitionProgression: parsed.repetitionProgression || '',
-      golfTranslation: parsed.golfTranslation,
-      exercises: parsed.exercises,
-      proTip: parsed.proTip,
-      generatedAt: Date.now(),
-      engineUsed: 'GEMINI_2_5_FLASH',
-      language
-    };
+    return toRemoteAnalysis(JSON.parse(candidateText), language);
   }
 
   private async callGeminiRotationApi(
@@ -221,11 +280,7 @@ export class AiCoachService {
       }
     };
 
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    const resp = await this.postWithTimeout(url, body);
 
     if (!resp.ok) {
       const errText = await resp.text();
@@ -236,18 +291,7 @@ export class AiCoachService {
     const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!candidateText) return null;
 
-    const parsed = JSON.parse(candidateText);
-    return {
-      headline: parsed.headline,
-      summary: parsed.summary,
-      repetitionProgression: parsed.repetitionProgression || '',
-      golfTranslation: parsed.golfTranslation,
-      exercises: parsed.exercises,
-      proTip: parsed.proTip,
-      generatedAt: Date.now(),
-      engineUsed: 'GEMINI_2_5_FLASH',
-      language
-    };
+    return toRemoteAnalysis(JSON.parse(candidateText), language);
   }
 
   private async callGeminiHolisticApi(
@@ -276,11 +320,7 @@ export class AiCoachService {
       }
     };
 
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    const resp = await this.postWithTimeout(url, body);
 
     if (!resp.ok) {
       const errText = await resp.text();
@@ -291,18 +331,7 @@ export class AiCoachService {
     const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!candidateText) return null;
 
-    const parsed = JSON.parse(candidateText);
-    return {
-      headline: parsed.headline,
-      summary: parsed.summary,
-      repetitionProgression: parsed.repetitionProgression || '',
-      golfTranslation: parsed.golfTranslation,
-      exercises: parsed.exercises,
-      proTip: parsed.proTip,
-      generatedAt: Date.now(),
-      engineUsed: 'GEMINI_2_5_FLASH',
-      language
-    };
+    return toRemoteAnalysis(JSON.parse(candidateText), language);
   }
 
   private async callGeminiChat(
@@ -366,11 +395,7 @@ Answer the golfer concisely, warmly, and practically (2-4 paragraphs max).
       }
     };
 
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    const resp = await this.postWithTimeout(url, body);
 
     if (!resp.ok) {
       throw new Error(`Gemini Chat error: ${resp.status}`);
