@@ -1,7 +1,7 @@
 import { BodySwingCorrelator } from '../../../src/core/correlation/body-swing-correlator';
 import { GolfSwingPhaseEngine } from '../../../src/core/motion/phases/golf-swing-phase-engine';
 import { generate240FpsSwingSequence } from '../../../src/core/data/sample-240fps-swing';
-import { GolfBodyScoreResult } from '../../../src/core/metrics/golf-body-score';
+import { GolfBodyScoreResult, calculateGolfBodyScore } from '../../../src/core/metrics/golf-body-score';
 
 describe('BodySwingCorrelator', () => {
   let correlator: BodySwingCorrelator;
@@ -125,5 +125,54 @@ describe('BodySwingCorrelator', () => {
       expect(c.title['sv-SE']).toContain('kan bidra');
       expect(c.title['en-US']).toContain('may contribute');
     }
+  });
+
+  describe('only correlates measured pillars', () => {
+    const fault = (id: string, phase: any) => ({
+      id, name: { 'sv-SE': id, 'en-US': id }, severity: 'HIGH' as const, phaseDetected: phase,
+      metricValue: 20, threshold: 10, unit: '°',
+      description: { 'sv-SE': id, 'en-US': id }, relatedBodyLimitation: { 'sv-SE': id, 'en-US': id },
+    });
+    const swingWith = (...ids: Array<[string, string]>) => {
+      const swingResult = new GolfSwingPhaseEngine().analyzeSequence(generate240FpsSwingSequence(480));
+      swingResult.faults.push(...ids.map(([id, phase]) => fault(id, phase) as any));
+      return swingResult;
+    };
+
+    it('never reports a limitation for an untested body (all pillars measured: false)', () => {
+      const body = calculateGolfBodyScore(null, null);
+      expect(body.hipHinge.measured).toBe(false);
+      expect(body.thoracic.measured).toBe(false);
+      const swing = swingWith(
+        ['EARLY_EXTENSION', 'P7_IMPACT'], ['OVER_ROTATION_PELVIS', 'P4_TOP'],
+        ['REVERSE_SPINE', 'P4_TOP'], ['SWAY_BACKSWING', 'P4_TOP'],
+      );
+      expect(correlator.correlate(body, swing)).toEqual([]);
+    });
+
+    it('correlates the measured pillar and skips the unmeasured one', () => {
+      const body: any = {
+        hipHinge: { measured: true, total: 20 },
+        thoracic: { measured: false, total: 0, maxLeft: 0, maxRight: 0, asymmetry: 0 },
+      };
+      const swing = swingWith(['EARLY_EXTENSION', 'P7_IMPACT'], ['REVERSE_SPINE', 'P4_TOP']);
+      expect(correlator.correlate(body, swing).map(c => c.bodyTest)).toEqual(['HIP_HINGE']);
+    });
+
+    it('does not invent rotation degrees or pelvis turn when they are missing', () => {
+      const swing = swingWith(['OVER_ROTATION_PELVIS', 'P4_TOP']);
+      delete (swing.kinematics as any).P4_TOP;
+      const body: any = { hipHinge: { total: 45 }, thoracic: { total: 20 } };
+      const [c] = correlator.correlate(body, swing);
+      expect(c?.explanation['sv-SE']).toContain('20/50');
+      expect(c?.explanation['sv-SE']).not.toMatch(/45°|55°/);
+      expect(c?.explanation['en-US']).not.toMatch(/45°|55°/);
+    });
+
+    it('links a downswing slide to SLIDE_DOWNSWING, not SWAY_BACKSWING', () => {
+      const body: any = { hipHinge: { total: 45 }, thoracic: { total: 30, asymmetry: 12 } };
+      const [c] = correlator.correlate(body, swingWith(['SLIDE_DOWNSWING', 'P6_DELIVERY']));
+      expect(c?.relatedSwingFaultId).toBe('SLIDE_DOWNSWING');
+    });
   });
 });

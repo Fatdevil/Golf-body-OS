@@ -19,6 +19,18 @@ import {
 
 export const VERSION = 'BODY_SWING_CORRELATOR_V1';
 
+const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * A pillar is usable only when it was measured and has a real total.
+ * `measured === undefined` (legacy results) counts as measured; an unmeasured
+ * pillar has total 0, which must never be read as a severe limitation.
+ */
+function measuredPillar<T extends { measured?: boolean; total?: unknown }>(pillar: T | null | undefined): T | null {
+  if (!pillar || pillar.measured === false || !isFiniteNumber(pillar.total)) return null;
+  return pillar;
+}
+
 export class BodySwingCorrelator {
   /**
    * Correlates physical screening results with golf swing analysis results.
@@ -40,13 +52,15 @@ export class BodySwingCorrelator {
       return correlations;
     }
 
-    const hipHinge = bodyResult.hipHinge;
-    const thoracic = (bodyResult as any).thoracic || (bodyResult as any).thoracicRotation;
+    // Only correlate with pillars that were actually measured — never with
+    // defaults or the zeros of an untested pillar.
+    const hipHinge = measuredPillar(bodyResult.hipHinge);
+    const thoracic = measuredPillar((bodyResult as any).thoracic || (bodyResult as any).thoracicRotation);
     const detectedFaultIds = new Set(swingResult.faults.map(f => f.id));
 
     // 1. Hip Hinge vs Early Extension & Loss of Posture
-    if (detectedFaultIds.has('EARLY_EXTENSION') || detectedFaultIds.has('LOSS_OF_POSTURE')) {
-      const hingeScore = hipHinge?.total ?? 50; // out of 50
+    if (hipHinge && (detectedFaultIds.has('EARLY_EXTENSION') || detectedFaultIds.has('LOSS_OF_POSTURE'))) {
+      const hingeScore = hipHinge.total; // out of 50
       if (hingeScore < 38) {
         correlations.push({
           bodyTest: 'HIP_HINGE',
@@ -71,8 +85,14 @@ export class BodySwingCorrelator {
     // 2. Thoracic Rotation vs Over-Rotation of Pelvis at Top (P4)
     if (detectedFaultIds.has('OVER_ROTATION_PELVIS') && thoracic) {
       const rotScore = thoracic.total; // out of 50
-      const maxTurn = Math.max(thoracic.maxLeft ?? 45, thoracic.maxRight ?? 45);
-      if (rotScore < 38 || maxTurn < 38) {
+      const turns = [thoracic.maxLeft, thoracic.maxRight].filter(isFiniteNumber);
+      const maxTurn = turns.length > 0 ? Math.max(...turns) : null;
+      const pelvisAtTop = swingResult.kinematics.P4_TOP?.pelvisTurn;
+      const pelvisSv = isFiniteNumber(pelvisAtTop) ? ` I svingen roterade höfterna ${Math.round(pelvisAtTop)}° vid P4 (toppen).` : '';
+      const pelvisEn = isFiniteNumber(pelvisAtTop) ? ` In the swing your pelvis turned ${Math.round(pelvisAtTop)}° at P4.` : '';
+      const turnSv = maxTurn !== null ? `Din bröstryggsrotation uppmättes till ${maxTurn}° (optimalt är 45°+).` : `Ditt rotationstest visade begränsningar (poäng: ${rotScore}/50).`;
+      const turnEn = maxTurn !== null ? `Your thoracic rotation reached only ${maxTurn}° (optimal is 45°+).` : `Your thoracic rotation assessment scored ${rotScore}/50.`;
+      if (rotScore < 38 || (maxTurn !== null && maxTurn < 38)) {
         correlations.push({
           bodyTest: 'THORACIC_ROTATION',
           bodyScore: rotScore,
@@ -82,8 +102,8 @@ export class BodySwingCorrelator {
             'en-US': 'Thoracic stiffness may contribute to pelvic over-rotation in backswing'
           },
           explanation: {
-            'sv-SE': `Din bröstryggsrotation uppmättes till ${maxTurn}° (optimalt är 45°+). I svingen roterade höfterna ${swingResult.kinematics.P4_TOP?.pelvisTurn ?? 55}° vid P4 (toppen). Begränsad bröstryggsrotation kan bidra till att kroppen kompenserar med höfterna för att nå svinglängd, vilket kan minska torsionsspänningen (X-Factor) och påverka timingen i nedsvingen.`,
-            'en-US': `Your thoracic rotation reached only ${maxTurn}° (optimal is 45°+). In the swing your pelvis turned ${swingResult.kinematics.P4_TOP?.pelvisTurn ?? 55}° at P4. Limited thoracic rotation may contribute to compensating with the hips to reach swing length, which can reduce elastic torque (X-Factor).`
+            'sv-SE': `${turnSv}${pelvisSv} Begränsad bröstryggsrotation kan bidra till att kroppen kompenserar med höfterna för att nå svinglängd, vilket kan minska torsionsspänningen (X-Factor) och påverka timingen i nedsvingen.`,
+            'en-US': `${turnEn}${pelvisEn} Limited thoracic rotation may contribute to compensating with the hips to reach swing length, which can reduce elastic torque (X-Factor).`
           },
           prescription: {
             'sv-SE': 'Sittande bröstryggsrotationer med pinne över bröstet och knäppta knän för att isolera överkroppen från underkroppen.',
@@ -120,11 +140,11 @@ export class BodySwingCorrelator {
     // 4. Rotational Asymmetry vs Sway / Slide
     if ((detectedFaultIds.has('SWAY_BACKSWING') || detectedFaultIds.has('SLIDE_DOWNSWING')) && thoracic) {
       const asymmetry = thoracic.asymmetry;
-      if (asymmetry > 8) {
+      if (isFiniteNumber(asymmetry) && asymmetry > 8) {
         correlations.push({
           bodyTest: 'THORACIC_ROTATION',
           bodyScore: thoracic.total,
-          relatedSwingFaultId: 'SWAY_BACKSWING',
+          relatedSwingFaultId: detectedFaultIds.has('SWAY_BACKSWING') ? 'SWAY_BACKSWING' : 'SLIDE_DOWNSWING',
           title: {
             'sv-SE': `Rotationsasymmetri (${asymmetry}°) kan bidra till glid istället för vridning`,
             'en-US': `Rotational asymmetry (${asymmetry}°) may contribute to lateral sway instead of rotation`
