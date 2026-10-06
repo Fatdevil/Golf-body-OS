@@ -415,7 +415,7 @@ export default function DV1AValidationScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0a0a0a' },
-  header: { padding: 24, paddingTop: 60 },
+  header: { padding: 24 },
   title: { fontSize: 28, fontWeight: '700', color: '#ffffff' },
   subtitle: { fontSize: 14, color: '#888888', marginTop: 4 },
   button: {

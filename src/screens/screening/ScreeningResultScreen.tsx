@@ -9,8 +9,9 @@
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Share } from 'react-native';
 import { useScreening } from '../../context/ScreeningContext';
+import { formatDiagnosticsForSharing } from '../../core/diagnostics/screening-diagnostics';
 
 export default function ScreeningResultScreen() {
   const { currentResult, setActiveTab, cancelScreening, storageError } = useScreening();
@@ -34,8 +35,21 @@ export default function ScreeningResultScreen() {
     angles,
     predictedSwingFaults,
     prescribedExercises,
-    isSimulated
+    isSimulated,
+    diagnostics
   } = currentResult;
+
+  const handleShareDiagnostics = async () => {
+    if (!diagnostics) return;
+    try {
+      await Share.share({
+        title: 'Golf Body OS – testlogg',
+        message: formatDiagnosticsForSharing(diagnostics),
+      });
+    } catch (err) {
+      console.warn('[ScreeningResult] Could not share test log:', err);
+    }
+  };
 
   const handleReturnToDashboard = () => {
     cancelScreening();
@@ -181,6 +195,13 @@ export default function ScreeningResultScreen() {
           </View>
         ))}
       </View>
+
+      {/* Device test log (camera, pose model, pipeline outcome) */}
+      {diagnostics && (
+        <Pressable style={styles.secondaryButton} onPress={handleShareDiagnostics}>
+          <Text style={styles.secondaryButtonText}>📋 Dela testlogg</Text>
+        </Pressable>
+      )}
 
       {/* Return to Dashboard Button */}
       <Pressable style={styles.primaryButton} onPress={handleReturnToDashboard}>
@@ -459,5 +480,20 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: '#09090B',
+  },
+  secondaryButton: {
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: '#3F3F46',
+    backgroundColor: '#18181B',
+  },
+  secondaryButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#D4D4D8',
   },
 });

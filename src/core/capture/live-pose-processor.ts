@@ -48,7 +48,8 @@ export interface LivePoseProcessorOptions {
   modelInfo: NativeModelInfo;
   onPoseFrame: (frame: PoseFrame) => void;
   onError?: (error: unknown) => void;
-  onFirstFrameInfo?: (info: FrameSourceInfo) => void;
+  /** Called for the first frame and again whenever the camera source changes (e.g. camera flip). */
+  onFrameSourceInfo?: (info: FrameSourceInfo) => void;
 }
 
 export interface LivePoseProcessorStats {
@@ -102,7 +103,7 @@ export class LivePoseProcessor {
   private readonly normalize = createTimestampNormalizer();
   private busy = false;
   private frameId = 0;
-  private reportedInfo = false;
+  private reportedInfoKey: string | null = null;
   readonly stats: LivePoseProcessorStats = { received: 0, droppedBusy: 0, noPerson: 0, errors: 0, emitted: 0 };
 
   constructor(opts: LivePoseProcessorOptions) {
@@ -121,9 +122,12 @@ export class LivePoseProcessor {
     info?: Omit<FrameSourceInfo, 'outputWidth' | 'outputHeight'>,
   ): Promise<void> | null {
     this.stats.received++;
-    if (info && !this.reportedInfo) {
-      this.reportedInfo = true;
-      this.opts.onFirstFrameInfo?.({ ...info, outputWidth: width, outputHeight: height });
+    if (info) {
+      const key = `${info.pixelFormat}|${info.orientation}|${info.isMirrored}|${info.sourceWidth}x${info.sourceHeight}|${width}x${height}`;
+      if (key !== this.reportedInfoKey) {
+        this.reportedInfoKey = key;
+        this.opts.onFrameSourceInfo?.({ ...info, outputWidth: width, outputHeight: height });
+      }
     }
 
     const timestampMs = this.normalize(rawTimestamp);

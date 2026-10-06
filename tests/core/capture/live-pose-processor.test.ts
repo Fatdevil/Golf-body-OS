@@ -85,13 +85,24 @@ describe('LivePoseProcessor', () => {
     expect(errors).toHaveLength(1);
   });
 
-  test('reports camera metadata once for on-device verification', async () => {
+  test('reports camera metadata once per source for on-device verification', async () => {
     const infos: unknown[] = [];
     const detect: DetectVideoFrame = async (_b, w, h) => nativeResult(w, h);
-    const p = new LivePoseProcessor({ detect, modelInfo, onPoseFrame: () => {}, onFirstFrameInfo: (i) => infos.push(i) });
+    const p = new LivePoseProcessor({ detect, modelInfo, onPoseFrame: () => {}, onFrameSourceInfo: (i) => infos.push(i) });
     const info = { pixelFormat: 'rgb-bgra-8-bit', orientation: 'right', isMirrored: true, sourceWidth: 640, sourceHeight: 480 };
     await p.process(rgb, 4, 3, 0, info);
     await p.process(rgb, 4, 3, 1 / 30, info);
     expect(infos).toEqual([{ ...info, outputWidth: 4, outputHeight: 3 }]);
+  });
+
+  test('reports the new source again after a camera flip', async () => {
+    const infos: Array<{ isMirrored: boolean }> = [];
+    const detect: DetectVideoFrame = async (_b, w, h) => nativeResult(w, h);
+    const p = new LivePoseProcessor({ detect, modelInfo, onPoseFrame: () => {}, onFrameSourceInfo: (i) => infos.push(i) });
+    const front = { pixelFormat: 'rgb', orientation: 'right', isMirrored: true, sourceWidth: 640, sourceHeight: 480 };
+    await p.process(rgb, 4, 3, 0, front);
+    await p.process(rgb, 4, 3, 1 / 30, { ...front, isMirrored: false });
+    await p.process(rgb, 4, 3, 2 / 30, { ...front, isMirrored: false });
+    expect(infos.map((i) => i.isMirrored)).toEqual([true, false]);
   });
 });
