@@ -45,6 +45,12 @@ export interface PoseModelDiagnostics {
   initError: string | null;
 }
 
+export interface StageThroughput {
+  count: number;
+  durationMs: number;
+  fps: number | null;
+}
+
 export interface ScreeningDiagnostics {
   version: string;
   createdAt: string;
@@ -55,11 +61,16 @@ export interface ScreeningDiagnostics {
   poseModel: PoseModelDiagnostics;
   /** Camera images handed to the pose processor (null if it never started). */
   processor: LivePoseProcessorStats | null;
-  /** Pose frames that reached the screening (a person was detected). */
+  /**
+   * Pose frames that reached the screening (a person was detected).
+   * Duration and fps cover active capture only: summed per stage, so the
+   * camera-off pause between stages of a full battery is not counted.
+   */
   poseFrames: {
     count: number;
     durationMs: number;
     fps: number | null;
+    byStage: Record<string, StageThroughput>;
     landmarksPerFrame: number | null;
     /** Mean visibility/presence of shoulders, hips, knees and ankles, 0–1. */
     keyLandmarkConfidence: number | null;
@@ -86,6 +97,11 @@ function landmarkConfidence(visibility?: number, presence?: number): number | nu
   return c === undefined ? null : c;
 }
 
+/** Frames per second from frame intervals over a duration; null when undefined. */
+function throughput(intervals: number, durationMs: number): number | null {
+  return intervals > 0 && durationMs > 0 ? round((intervals * 1000) / durationMs, 1) : null;
+}
+
 function describeError(err: unknown): string {
   if (err instanceof Error) return `${err.name}: ${err.message}`;
   return typeof err === 'string' ? err : JSON.stringify(err) ?? String(err);
@@ -99,8 +115,7 @@ export class ScreeningDiagnosticsRecorder {
     ready: false, model: null, version: null, variant: null, sha256: null, initError: null,
   };
   private frameCount = 0;
-  private firstFrameMs: number | null = null;
-  private lastFrameMs: number | null = null;
+  private readonly stages = new Map<string, { count: number; firstMs: number; lastMs: number }>();
   private landmarkTotal = 0;
   private confidenceSum = 0;
   private confidenceCount = 0;
@@ -137,10 +152,16 @@ export class ScreeningDiagnosticsRecorder {
     this.errors.push(`${context}: ${describeError(err)}`);
   }
 
-  recordPoseFrame(frame: PoseFrame): void {
+  /** `stage` separates capture periods (e.g. HINGE / ROTATION) so pauses between them are not counted. */
+  recordPoseFrame(frame: PoseFrame, stage = 'CAPTURE'): void {
     this.frameCount++;
-    if (this.firstFrameMs === null) this.firstFrameMs = frame.timestampMs;
-    this.lastFrameMs = frame.timestampMs;
+    const s = this.stages.get(stage);
+    if (s) {
+      s.count++;
+      s.lastMs = frame.timestampMs;
+    } else {
+      this.stages.set(stage, { count: 1, firstMs: frame.timestampMs, lastMs: frame.timestampMs });
+    }
     this.landmarkTotal += frame.landmarks.length;
     for (const lm of frame.landmarks) {
       if (!KEY_LANDMARKS.includes(lm.id)) continue;
@@ -166,9 +187,15 @@ export class ScreeningDiagnosticsRecorder {
     processorStats: LivePoseProcessorStats | null;
     now?: Date;
   }): ScreeningDiagnostics {
-    const durationMs = this.firstFrameMs !== null && this.lastFrameMs !== null
-      ? Math.max(0, this.lastFrameMs - this.firstFrameMs)
-      : 0;
+    const byStage: Record<string, StageThroughput> = {};
+    let durationMs = 0;
+    let intervals = 0;
+    for (const [stage, st] of this.stages) {
+      const d = Math.max(0, st.lastMs - st.firstMs);
+      byStage[stage] = { count: st.count, durationMs: Math.round(d), fps: throughput(st.count - 1, d) };
+      durationMs += d;
+      intervals += st.count - 1;
+    }
     const errors = [...this.errors];
     if (this.droppedErrors > 0) errors.push(`… ${this.droppedErrors} more error(s) not recorded`);
     return {
@@ -183,7 +210,8 @@ export class ScreeningDiagnosticsRecorder {
       poseFrames: {
         count: this.frameCount,
         durationMs: Math.round(durationMs),
-        fps: this.frameCount > 1 && durationMs > 0 ? round(((this.frameCount - 1) * 1000) / durationMs, 1) : null,
+        fps: throughput(intervals, durationMs),
+        byStage,
         landmarksPerFrame: this.frameCount > 0 ? round(this.landmarkTotal / this.frameCount, 1) : null,
         keyLandmarkConfidence: this.confidenceCount > 0 ? round(this.confidenceSum / this.confidenceCount, 2) : null,
       },

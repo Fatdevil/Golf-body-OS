@@ -364,7 +364,7 @@ export default function ActiveScreeningScreen() {
     // Throttle the on-screen readout: every setState re-renders the screen.
     const updateReadout = frame.timestampMs - lastReadoutMsRef.current >= ANGLE_READOUT_INTERVAL_MS;
     if (updateReadout) lastReadoutMsRef.current = frame.timestampMs;
-    diagnostics.recordPoseFrame(frame);
+    diagnostics.recordPoseFrame(frame, stage);
     if (stage === 'HINGE') {
       liveSessionRef.current.addHingeFrame(frame);
       liveHingeEngineRef.current?.processFrame(frame);

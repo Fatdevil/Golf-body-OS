@@ -48,9 +48,32 @@ describe("ScreeningDiagnosticsRecorder", () => {
       count: 31,
       durationMs: 3000,
       fps: 10,
+      byStage: { CAPTURE: { count: 31, durationMs: 3000, fps: 10 } },
       landmarksPerFrame: 33,
       keyLandmarkConfidence: 0.8,
     });
+  });
+
+  it("excludes the camera-off pause between stages from duration and fps", () => {
+    const r = new ScreeningDiagnosticsRecorder("FULL_BATTERY");
+    // Hinge: 0–3 s at 10 fps; 60 s transition with no frames; rotation: 63–65 s at 20 fps.
+    for (let i = 0; i <= 30; i++) r.recordPoseFrame(frame(i * 100), "HINGE");
+    for (let i = 0; i <= 40; i++)
+      r.recordPoseFrame(frame(63000 + i * 50), "ROTATION");
+    const d = r.build({
+      isSimulated: false,
+      device,
+      processorStats: null,
+      now,
+    });
+
+    expect(d.poseFrames.byStage).toEqual({
+      HINGE: { count: 31, durationMs: 3000, fps: 10 },
+      ROTATION: { count: 41, durationMs: 2000, fps: 20 },
+    });
+    expect(d.poseFrames.count).toBe(72);
+    expect(d.poseFrames.durationMs).toBe(5000);
+    expect(d.poseFrames.fps).toBe(14); // 70 intervals / 5 s, not 71 / 65 s
   });
 
   it("reports nulls instead of invented values when no frame arrived", () => {
@@ -64,6 +87,7 @@ describe("ScreeningDiagnosticsRecorder", () => {
       count: 0,
       durationMs: 0,
       fps: null,
+      byStage: {},
       landmarksPerFrame: null,
       keyLandmarkConfidence: null,
     });
