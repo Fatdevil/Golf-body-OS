@@ -9,7 +9,8 @@
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, Pressable, SafeAreaView, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, Pressable, StatusBar } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useScreening, AppTab } from '../context/ScreeningContext';
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
 import ScreeningSelectScreen from '../screens/screening/ScreeningSelectScreen';
@@ -20,6 +21,10 @@ import DV1AValidationScreen from '../validation/DV1AValidationScreen';
 
 export default function AppShell() {
   const { activeTab, setActiveTab, activeScreeningStep, setActiveScreeningStep } = useScreening();
+  // Android draws edge-to-edge (and RN's SafeAreaView is iOS-only), so keep
+  // content clear of the status bar and system navigation bar explicitly.
+  const insets = useSafeAreaInsets();
+  const showTabBar = activeTab !== 'DIAGNOSTICS' && activeScreeningStep !== 'RUNNER';
 
   const handleTabPress = (tab: AppTab) => {
     if (tab === 'SCREENING' && activeScreeningStep === 'RESULT') {
@@ -66,7 +71,13 @@ export default function AppShell() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View
+      testID="app-shell"
+      style={[
+        styles.safeArea,
+        { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right },
+      ]}
+    >
       <StatusBar barStyle="light-content" backgroundColor="#0A0A0C" />
 
       {/* Top App Header */}
@@ -86,13 +97,13 @@ export default function AppShell() {
       )}
 
       {/* Screen Body */}
-      <View style={styles.screenBody}>
+      <View testID="screen-body" style={[styles.screenBody, !showTabBar && { paddingBottom: insets.bottom }]}>
         {renderCurrentScreen()}
       </View>
 
       {/* Bottom Navigation TabBar */}
-      {activeTab !== 'DIAGNOSTICS' && activeScreeningStep !== 'RUNNER' && (
-        <View style={styles.tabBar}>
+      {showTabBar && (
+        <View testID="tab-bar" style={[styles.tabBar, { paddingBottom: styles.tabBar.paddingBottom + insets.bottom }]}>
           <Pressable
             style={[styles.tabItem, activeTab === 'DASHBOARD' && styles.tabItemActive]}
             onPress={() => handleTabPress('DASHBOARD')}
@@ -124,7 +135,7 @@ export default function AppShell() {
           </Pressable>
         </View>
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 

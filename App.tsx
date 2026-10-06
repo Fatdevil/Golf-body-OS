@@ -5,14 +5,17 @@
  * navigation (Dashboard, Screening Runner, History) and DV-1A diagnostics.
  */
 import React from 'react';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ScreeningProvider } from './src/context/ScreeningContext';
 import AppShell from './src/navigation/AppShell';
 
 export default function App() {
   return (
-    <ScreeningProvider>
-      <AppShell />
-    </ScreeningProvider>
+    <SafeAreaProvider>
+      <ScreeningProvider>
+        <AppShell />
+      </ScreeningProvider>
+    </SafeAreaProvider>
   );
 }
 
