@@ -2,6 +2,7 @@ import {
   ScreeningDiagnosticsRecorder,
   formatDiagnosticsForSharing,
   MAX_DIAGNOSTIC_ERRORS,
+  MAX_FRAME_SOURCES,
 } from "../../../src/core/diagnostics/screening-diagnostics";
 import { LiveScreeningSession } from "../../../src/core/analysis/live-screening-session";
 import { LandmarkId } from "../../../src/core/types/landmark";
@@ -96,7 +97,7 @@ describe("ScreeningDiagnosticsRecorder", () => {
     expect(d.isSimulated).toBe(true);
   });
 
-  it("records pose model state, first camera frame and processor stats", () => {
+  it("records pose model state, camera sources and processor stats", () => {
     const r = new ScreeningDiagnosticsRecorder("FULL_BATTERY");
     r.setPoseModelReady({
       model: "MEDIAPIPE_POSE",
@@ -113,8 +114,11 @@ describe("ScreeningDiagnosticsRecorder", () => {
       outputWidth: 360,
       outputHeight: 480,
     };
-    r.setFirstFrameInfo(info);
-    r.setFirstFrameInfo({ ...info, orientation: "left" }); // only the first is kept
+    r.setCameraPosition("front");
+    r.recordFrameSource(info);
+    // User flips to the back camera mid-test: the new source is tagged "back".
+    r.setCameraPosition("back");
+    r.recordFrameSource({ ...info, isMirrored: false });
     const stats = {
       received: 100,
       droppedBusy: 40,
@@ -135,8 +139,36 @@ describe("ScreeningDiagnosticsRecorder", () => {
       sha256: "abc",
       initError: null,
     });
-    expect(d.camera.firstFrame?.orientation).toBe("up");
+    expect(d.camera.position).toBe("back");
+    expect(
+      d.camera.frameSources.map((f) => [f.cameraPosition, f.isMirrored]),
+    ).toEqual([
+      ["front", true],
+      ["back", false],
+    ]);
     expect(d.processor).toEqual(stats);
+  });
+
+  it("caps the number of recorded camera sources", () => {
+    const r = new ScreeningDiagnosticsRecorder("HIP_HINGE");
+    const info = {
+      pixelFormat: "rgb",
+      orientation: "up",
+      isMirrored: false,
+      sourceWidth: 960,
+      sourceHeight: 720,
+      outputWidth: 360,
+      outputHeight: 480,
+    };
+    for (let i = 0; i < MAX_FRAME_SOURCES + 3; i++)
+      r.recordFrameSource({ ...info, sourceWidth: 100 + i });
+    const d = r.build({
+      isSimulated: false,
+      device,
+      processorStats: null,
+      now,
+    });
+    expect(d.camera.frameSources).toHaveLength(MAX_FRAME_SOURCES);
   });
 
   it("keeps model init failures and caps the error list", () => {

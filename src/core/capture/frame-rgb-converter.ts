@@ -15,7 +15,7 @@
  * rotated by `orientation` relative to upright ('right' = +90°, i.e.
  * clockwise in image coordinates); we counter-rotate. Mirroring is undone in
  * the upright image. Verify both on a device (see LivePoseProcessor's
- * onFirstFrameInfo) — they cannot be observed in unit tests.
+ * onFrameSourceInfo) — they cannot be observed in unit tests.
  *
  * @module frame-rgb-converter
  * @version FRAME_RGB_CONVERTER_V1

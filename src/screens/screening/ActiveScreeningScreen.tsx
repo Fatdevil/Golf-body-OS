@@ -408,10 +408,10 @@ export default function ActiveScreeningScreen() {
         console.warn('[ActiveScreening] Pose detection failed:', err);
         diagnostics.recordError('pose detection', err);
       },
-      // Logged once so orientation / mirroring can be verified on a device.
-      onFirstFrameInfo: (info) => {
+      // Logged per camera source so orientation / mirroring can be verified on a device.
+      onFrameSourceInfo: (info) => {
         console.log('[ActiveScreening] Camera frames:', info);
-        diagnostics.setFirstFrameInfo(info);
+        diagnostics.recordFrameSource(info);
       },
     });
     return () => {

@@ -27,6 +27,8 @@ export const VERSION = 'SCREENING_DIAGNOSTICS_V1';
 
 /** At most this many error messages are kept (the first ones explain the most). */
 export const MAX_DIAGNOSTIC_ERRORS = 20;
+/** At most this many distinct camera sources are kept (one per flip/orientation change). */
+export const MAX_FRAME_SOURCES = 10;
 
 /** Landmarks both tests depend on; their mean confidence is reported. */
 const KEY_LANDMARKS: readonly LandmarkId[] = [
@@ -57,7 +59,12 @@ export interface ScreeningDiagnostics {
   testType: string;
   isSimulated: boolean;
   device: { os: string; osVersion: string };
-  camera: { position: string; firstFrame: FrameSourceInfo | null };
+  camera: {
+    /** Camera selected when the log was built. */
+    position: string;
+    /** Each distinct camera source seen, tagged with the camera selected when it arrived. */
+    frameSources: Array<FrameSourceInfo & { cameraPosition: string }>;
+  };
   poseModel: PoseModelDiagnostics;
   /** Camera images handed to the pose processor (null if it never started). */
   processor: LivePoseProcessorStats | null;
@@ -110,7 +117,7 @@ function describeError(err: unknown): string {
 export class ScreeningDiagnosticsRecorder {
   private readonly testType: string;
   private cameraPosition = 'unknown';
-  private firstFrame: FrameSourceInfo | null = null;
+  private readonly frameSources: Array<FrameSourceInfo & { cameraPosition: string }> = [];
   private poseModel: PoseModelDiagnostics = {
     ready: false, model: null, version: null, variant: null, sha256: null, initError: null,
   };
@@ -132,8 +139,10 @@ export class ScreeningDiagnosticsRecorder {
     this.cameraPosition = position;
   }
 
-  setFirstFrameInfo(info: FrameSourceInfo): void {
-    if (!this.firstFrame) this.firstFrame = { ...info };
+  /** Records a camera source (first frame, or a change such as a camera flip) with the current position. */
+  recordFrameSource(info: FrameSourceInfo): void {
+    if (this.frameSources.length >= MAX_FRAME_SOURCES) return;
+    this.frameSources.push({ ...info, cameraPosition: this.cameraPosition });
   }
 
   setPoseModelReady(info: { model: string; version: string; variant: string; sha256: string }): void {
@@ -204,7 +213,7 @@ export class ScreeningDiagnosticsRecorder {
       testType: this.testType,
       isSimulated: options.isSimulated,
       device: { ...options.device },
-      camera: { position: this.cameraPosition, firstFrame: this.firstFrame },
+      camera: { position: this.cameraPosition, frameSources: this.frameSources.map((f) => ({ ...f })) },
       poseModel: { ...this.poseModel },
       processor: options.processorStats ? { ...options.processorStats } : null,
       poseFrames: {
