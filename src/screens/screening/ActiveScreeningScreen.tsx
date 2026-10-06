@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Platform } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, useFrameOutput, type Frame } from 'react-native-vision-camera';
 import { scheduleOnRN } from 'react-native-worklets';
 import { useScreening } from '../../context/ScreeningContext';
@@ -28,6 +28,7 @@ import { convertFrameToPackedRgb, isSupportedRgbPixelFormat } from '../../core/c
 import { LivePoseProcessor } from '../../core/capture/live-pose-processor';
 import { toIsotropicLandmarks } from '../../core/coordinates/isotropic';
 import { interiorAngle } from '../../core/metrics/angle-calculator';
+import { ScreeningDiagnosticsRecorder } from '../../core/diagnostics/screening-diagnostics';
 
 /** Long side (px) of the upright RGB image sent to MediaPipe. */
 const POSE_INPUT_MAX_SIDE = 480;
@@ -61,6 +62,13 @@ export default function ActiveScreeningScreen() {
   const [cameraPosition, setCameraPosition] = useState<'front' | 'back'>('front');
   const device = useCameraDevice(cameraPosition);
   const [nativePoseReady, setNativePoseReady] = useState<boolean>(false);
+
+  // Shareable device test log for this screening (see screening-diagnostics).
+  // Created once (lazy initializer); a stable object, so memoized callbacks can use it.
+  const [diagnostics] = useState(() => new ScreeningDiagnosticsRecorder(activeTestType ?? 'FULL_BATTERY'));
+  useEffect(() => {
+    diagnostics.setCameraPosition(cameraPosition);
+  }, [diagnostics, cameraPosition]);
 
   // Stored measurements across stages (empty until measured)
   const hingeMetricsRef = useRef<{
@@ -107,6 +115,7 @@ export default function ActiveScreeningScreen() {
         // Live frames: take the hinge measurement from the full pipeline.
         // (Simulation writes hingeMetricsRef itself and never feeds frames.)
         const measured = liveSessionRef.current.finalizeHinge();
+        diagnostics.setHinge(liveSessionRef.current.lastHingeAnalysis, measured);
         if (measured) {
           hingeMetricsRef.current = {
             hingeAngle: measured.hingeAngle,
@@ -123,9 +132,9 @@ export default function ActiveScreeningScreen() {
 
     liveRotationEngineRef.current = new LiveRotationCoachingEngine(coach, {
       onComplete: () => {
-        const measured = LiveScreeningSession.summarizeRotation(
-          liveRotationEngineRef.current?.getSamples() ?? []
-        );
+        const samples = liveRotationEngineRef.current?.getSamples() ?? [];
+        const measured = LiveScreeningSession.summarizeRotation(samples);
+        diagnostics.setRotation(samples.length, measured);
         if (measured) {
           rotationMetricsRef.current = { ...measured };
         }
@@ -156,6 +165,7 @@ export default function ActiveScreeningScreen() {
       })
       .catch((err: unknown) => {
         console.warn('[ActiveScreening] MediaPipe native module unavailable:', err);
+        diagnostics.setPoseModelFailed(err);
         if (isMounted) setNativePoseReady(false);
       });
     return () => {
@@ -190,6 +200,20 @@ export default function ActiveScreeningScreen() {
     setRepCount(0);
     setCurrentAngle(0);
     setLastCue('Vrid bröstkorgen långsamt åt vänster');
+  };
+
+  // The test log must never stop a result from being saved.
+  const buildDiagnostics = () => {
+    try {
+      return diagnostics.build({
+        isSimulated: simulatedRunRef.current,
+        device: { os: Platform.OS, osVersion: String(Platform.Version) },
+        processorStats: poseProcessorRef.current?.stats ?? null,
+      });
+    } catch (err) {
+      console.warn('[ActiveScreening] Could not build test log:', err);
+      return undefined;
+    }
   };
 
   const finalizeOverallResult = () => {
@@ -323,6 +347,7 @@ export default function ActiveScreeningScreen() {
       predictedSwingFaults: predictedFaults,
       prescribedExercises,
       isSimulated: simulatedRunRef.current,
+      diagnostics: buildDiagnostics(),
     };
 
     finishScreening(session);
@@ -339,6 +364,7 @@ export default function ActiveScreeningScreen() {
     // Throttle the on-screen readout: every setState re-renders the screen.
     const updateReadout = frame.timestampMs - lastReadoutMsRef.current >= ANGLE_READOUT_INTERVAL_MS;
     if (updateReadout) lastReadoutMsRef.current = frame.timestampMs;
+    diagnostics.recordPoseFrame(frame);
     if (stage === 'HINGE') {
       liveSessionRef.current.addHingeFrame(frame);
       liveHingeEngineRef.current?.processFrame(frame);
@@ -367,8 +393,10 @@ export default function ActiveScreeningScreen() {
     let modelInfo: GolfBodyPose.NativeModelInfo;
     try {
       modelInfo = GolfBodyPose.getModelInfo();
+      diagnostics.setPoseModelReady(modelInfo);
     } catch (err) {
       console.warn('[ActiveScreening] Could not read pose model info:', err);
+      diagnostics.setPoseModelFailed(err);
       return;
     }
     GolfBodyPose.resetVideoMode().catch(() => {});
@@ -376,9 +404,15 @@ export default function ActiveScreeningScreen() {
       detect: GolfBodyPose.detectVideoFrame,
       modelInfo,
       onPoseFrame: handlePoseFrame,
-      onError: (err) => console.warn('[ActiveScreening] Pose detection failed:', err),
+      onError: (err) => {
+        console.warn('[ActiveScreening] Pose detection failed:', err);
+        diagnostics.recordError('pose detection', err);
+      },
       // Logged once so orientation / mirroring can be verified on a device.
-      onFirstFrameInfo: (info) => console.log('[ActiveScreening] Camera frames:', info),
+      onFirstFrameInfo: (info) => {
+        console.log('[ActiveScreening] Camera frames:', info);
+        diagnostics.setFirstFrameInfo(info);
+      },
     });
     return () => {
       poseProcessorRef.current = null;

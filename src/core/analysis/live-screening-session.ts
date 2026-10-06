@@ -35,6 +35,23 @@ export interface LiveHingeMeasurement {
   repCount: number;
 }
 
+/**
+ * What the hip hinge pipeline saw on the last finalizeHinge() call, kept so a
+ * failed or abstained test can be explained (device test logs).
+ */
+export interface HingeAnalysisDiagnostics {
+  frameCount: number;
+  durationMs: number;
+  estimatedFps: number;
+  status: string;
+  failureCode: string | null;
+  repetitionsFound: number;
+  confidence: number;
+  confidenceFlags: string[];
+  validFrames: number | null;
+  rejectedFrames: number | null;
+}
+
 /** Thoracic rotation result in the shape the screening screen stores and scores. */
 export interface LiveRotationMeasurement {
   leftDeg: number;
@@ -70,6 +87,12 @@ function toBodyMetricFrame(frame: PoseFrame): PoseFrame {
 
 export class LiveScreeningSession {
   private hingeFrames: PoseFrame[] = [];
+  private hingeDiagnostics: HingeAnalysisDiagnostics | null = null;
+
+  /** Diagnostics from the last finalizeHinge() call (null before it ran or after reset). */
+  get lastHingeAnalysis(): HingeAnalysisDiagnostics | null {
+    return this.hingeDiagnostics;
+  }
 
   /** Record a frame captured during the hip hinge test (image-space landmarks, as from the native module). */
   addHingeFrame(frame: PoseFrame): void {
@@ -85,6 +108,7 @@ export class LiveScreeningSession {
    * Returns null when no valid repetition was measured.
    */
   finalizeHinge(): LiveHingeMeasurement | null {
+    this.hingeDiagnostics = null;
     if (this.hingeFrames.length === 0) return null;
     const first = this.hingeFrames[0]!;
     const last = this.hingeFrames[this.hingeFrames.length - 1]!;
@@ -99,6 +123,19 @@ export class LiveScreeningSession {
       .setAnalysisMode('LIVE', fps, fps)
       .setDecodedFrames([]);
     const result = new TemporalPipeline({ protocol: HIP_HINGE_V1 }).process(this.hingeFrames, trace);
+    this.hingeDiagnostics = {
+      frameCount: this.hingeFrames.length,
+      durationMs: Math.round(last.timestampMs - first.timestampMs),
+      estimatedFps: fps,
+      status: result.status,
+      failureCode: result.failureCode ?? null,
+      repetitionsFound: result.repetitions?.length ?? 0,
+      // Diagnostics must never break a measurement: tolerate partial results.
+      confidence: Number.isFinite(result.confidence?.overall) ? round1(result.confidence.overall * 100) / 100 : 0,
+      confidenceFlags: Array.isArray(result.confidence?.flags) ? [...result.confidence.flags] : [],
+      validFrames: result.trace?.validFrameCount ?? null,
+      rejectedFrames: result.trace?.rejectedFrameCount ?? null,
+    };
     // Only a SUCCESS analysis is a measurement; FAILED/ABSTAINED may still
     // carry residual repetitions that must not be shown or scored.
     if (result.status !== 'SUCCESS') return null;
@@ -121,6 +158,7 @@ export class LiveScreeningSession {
   /** Clears recorded frames (new attempt). */
   reset(): void {
     this.hingeFrames = [];
+    this.hingeDiagnostics = null;
   }
 
   /**

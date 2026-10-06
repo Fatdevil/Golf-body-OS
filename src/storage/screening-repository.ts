@@ -11,6 +11,7 @@
 
 import { File, Paths } from 'expo-file-system';
 import { GolfBodyTier } from '../core/metrics/golf-body-score';
+import type { ScreeningDiagnostics } from '../core/diagnostics/screening-diagnostics';
 
 export const VERSION = 'SCREENING_REPOSITORY_V1';
 
@@ -51,6 +52,8 @@ export interface StoredScreeningSession {
     description: string;
   }>;
   isSimulated?: boolean;
+  /** Device test log for this run (camera, pose model, pipeline outcome). */
+  diagnostics?: ScreeningDiagnostics;
 }
 
 const STORAGE_FILE_NAME = 'screening_history_v1.json';
